@@ -1,0 +1,252 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="page1" name="整体系统架构">
+    <mxGraphModel dx="1500" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p1_title" value="个人知识助手 (Personal Knowledge Agent) 整体架构&#10;GLM-5.2 (zai-sdk) · LangGraph · ChromaDB · 本地 RAG 问答" style="text;html=1;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="12" width="700" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_c1" value="① 入口层" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#6c8ebf;dashed=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="60" width="1420" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_main" value="main.py&#10;CLI 入口: REPL / -q 单次提问 / --rebuild 重建索引&#10;启动时自动索引知识库" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="110" width="240" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_test" value="test_agent.py&#10;测试脚本: 写示例文档 + 3 条查询&#10;--offline 不调 LLM 只验流水线" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="110" width="240" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_note" value="配置: config.py (pydantic-settings + python-dotenv)&#10;环境变量: ZHIPU_API_KEY / EMBEDDING_BACKEND(local|zhipu) / KB_DIR / TOP_K / RERANKER_ENABLED…" style="text;html=1;fontSize=12;align=left;verticalAlign=middle;whiteSpace=wrap;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="600" y="112" width="560" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_c6" value="⑥ 外部服务 (智谱 / 本地模型)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#b85450;dashed=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="220" width="360" height="620" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_glm" value="GLM-5.2 (智谱 zai-sdk)&#10;graph/llm.py · ZhipuLLM 适配器&#10;thinking 默认开启 · max_tokens=8192&#10;聊天生成 / 意图分类(关闭thinking) / 查询改写" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="280" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_emb" value="BAAI/bge-small-zh-v1.5 (本地)&#10;sentence-transformers · 离线免额度&#10;EMBEDDING_BACKEND=zhipu 可切换 API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="440" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_rerankmodel" value="bge-reranker-v2-m3&#10;本地 CrossEncoder (约 2GB, 首次下载)&#10;RERANKER_ENABLED=false 可降级为原始分数" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="570" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_c2" value="② LangGraph 编排层 (graph/)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#9673a6;dashed=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="220" width="1040" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_builder" value="graph/builder.py&#10;build_graph(): 装配依赖 +&#10;StateGraph 编译 + AsyncSqliteSaver" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="280" width="190" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_state" value="graph/state.py&#10;KnowledgeState&#10;messages / retrieved_docs /&#10;current_query / retry_count / final_answer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="290" y="280" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_nodes" value="graph/nodes.py&#10;6 个 async 节点&#10;(见② Agent 流程图)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="490" y="280" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_edges" value="graph/edges.py&#10;意图路由 / 质量门控&#10;重试预算判定" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="680" y="280" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_sp" value="prompts/system_prompt.py&#10;SYSTEM_PROMPT (检索优先/零幻觉/强制引用)&#10;DIRECT_RESPONSE_SYSTEM_PROMPT&#10;不包含 CoT/ReAct 指令" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="280" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_c3" value="③ 工具层 (tools/, 手动调用 · 检索/文档操作)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#d79b00;dashed=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="460" width="1040" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_ksearch" value="knowledge_search(query, filters?)&#10;知识库检索唯一入口 → retriever&#10;返回 top-5 片段 JSON" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="520" width="210" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_list" value="list_documents()&#10;聚合 metadata → 文档概览&#10;(doc_name / tags / updated_at)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="310" y="520" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_create" value="create_note(title, content)&#10;写 data/notes/*.md + 立即索引&#10;新笔记立即可检索" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="530" y="520" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_c4" value="④ RAG 流水线 (rag/)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#82b366;dashed=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="640" width="1040" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_loader" value="loader.py&#10;加载 .md/.txt&#10;(UTF-8→latin-1 兜底)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="710" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_splitter" value="splitter.py&#10;MarkdownHeader + Recursive&#10;chunk=512 / overlap=64" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="710" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_embedder" value="embedder.py&#10;Embedder.embed_texts()&#10;双后端: local / zhipu" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="710" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_vs" value="vectorstore.py&#10;VectorStore(Chroma 集合)&#10;add/query/all_documents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="710" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_retriever" value="retriever.py&#10;embed → top-10 → rerank&#10;→ top-5 (可降级)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="750" y="710" width="140" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_reranker" value="reranker.py&#10;CrossEncoder 懒加载&#10;失败→原始分数警告" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="910" y="710" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_c5" value="⑤ 本地存储 (data/)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#d6b656;dashed=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="870" width="1040" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_kb" value="data/kb/&#10;知识库 md/txt&#10;(启动时索引)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="930" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_notes" value="data/notes/&#10;create_note 写入的新笔记" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="930" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_chroma" value="data/chroma/&#10;ChromaDB 向量库&#10;(hnsw cosine)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="930" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1_ckpt" value="data/checkpoints.sqlite&#10;多轮对话检查点 (thread_id)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="600" y="930" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e1" value="build_graph()" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_main" target="p1_builder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e2" value="构建/验证图" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_test" target="p1_builder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e3" value="index_knowledge_base" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_main" target="p1_loader">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e4" value="load_documents()" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_loader" target="p1_splitter">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e5" value="chunks" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_splitter" target="p1_vs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e6" value="embed_texts()" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_vs" target="p1_embedder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e7" value="本地向量 (默认) / embedding-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_embedder" target="p1_emb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e8" value="_set_deps() 注入依赖" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_builder" target="p1_nodes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e9" value="提示词" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_sp" target="p1_nodes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e10" value="调用 @tool" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_nodes" target="p1_ksearch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e11" value="调用 @tool" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_nodes" target="p1_list">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e12" value="调用 @tool" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_nodes" target="p1_create">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e13" value="ZhipuLLM (zai-sdk · glm-5.2)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_nodes" target="p1_glm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e14" value="retriever.search()" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_ksearch" target="p1_retriever">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e15" value="all_documents()" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_list" target="p1_vs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e16" value="写入 .md" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_create" target="p1_notes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e17" value="add_documents() 即时索引" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_create" target="p1_vs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e18" value="query (top_k=10)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_retriever" target="p1_vs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e19" value="查询向量" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_retriever" target="p1_embedder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e20" value="rerank → top-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_retriever" target="p1_reranker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e21" value="CrossEncoder" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_reranker" target="p1_rerankmodel">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e22" value="持久化 (余弦相似)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_vs" target="p1_chroma">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e23" value="AsyncSqliteSaver" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_builder" target="p1_ckpt">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page2" name="Agent 流程图">
+    <mxGraphModel dx="1000" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="950" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p2_title" value="LangGraph Agent 运行时流程 (graph/nodes.py · graph/edges.py)" style="text;html=1;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="200" y="10" width="600" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_ckpt" value="SQLite Checkpointer&#10;AsyncSqliteSaver&#10;data/checkpoints.sqlite&#10;按 thread_id 保存多轮对话" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="250" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_start" value="START" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="470" y="60" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_intent" value="intent_router&#10;GLM 轻量分类 (thinking 关闭)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="440" y="150" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_decision1" value="意图?&#10;knowledge / direct" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="465" y="270" width="110" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_ksearch" value="knowledge_search_node&#10;调用 knowledge_search 工具&#10;→ 向量检索 top-10" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="190" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_rerank" value="rerank_node&#10;重排实际在 retriever 内执行&#10;→ top-5, 裁剪上下文" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="300" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_generate" value="generate_node&#10;GLM-5.2 thinking 合成回答&#10;[来源: 文档名, 章节]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="410" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_decision2" value="质量检查&#10;检索空 / 未找到 且&#10;retry &lt; max_retry?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="530" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_rewrite" value="rewrite_query_node&#10;查询改写 (retry_count + 1)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="700" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_direct" value="direct_response_node&#10;免检索直接回答&#10;(寒暄/闲聊/能力询问)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="90" y="430" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p2_end" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="840" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;" edge="1" parent="1" source="p2_start" target="p2_intent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;" edge="1" parent="1" source="p2_intent" target="p2_decision1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e3" value="knowledge" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" edge="1" parent="1" source="p2_decision1" target="p2_ksearch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e4" value="direct" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;fontSize=11;fontStyle=1;" edge="1" parent="1" source="p2_decision1" target="p2_direct">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;" edge="1" parent="1" source="p2_ksearch" target="p2_rerank">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;" edge="1" parent="1" source="p2_rerank" target="p2_generate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;" edge="1" parent="1" source="p2_generate" target="p2_decision2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e8" value="达标 / 检索命中" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontSize=11;fontStyle=1;" edge="1" parent="1" source="p2_decision2" target="p2_end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e9" value="不达标 &amp;&amp; retry &lt; max" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontSize=11;fontStyle=1;" edge="1" parent="1" source="p2_decision2" target="p2_rewrite">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e10" value="改写后重新检索 (仅一次)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;dashed=1;fontSize=11;fontStyle=1;" edge="1" parent="1" source="p2_rewrite" target="p2_ksearch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e11" value="直接回答" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=11;" edge="1" parent="1" source="p2_direct" target="p2_end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2e12" value="多轮对话状态持久化" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d6b656;dashed=1;fontSize=11;" edge="1" parent="1" source="p2_ckpt" target="p2_intent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

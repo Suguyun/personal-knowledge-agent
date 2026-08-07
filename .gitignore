@@ -1,0 +1,33 @@
+# ---- Secrets ----
+.env
+*.env.local
+*.env.*
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# ---- Virtual envs ----
+.venv/
+venv/
+env/
+
+# ---- Runtime data (personal knowledge base, vector store, checkpoints) ----
+# The KB directory itself is tracked (sample docs), runtime artifacts are not.
+personal-knowledge-agent/data/*
+!personal-knowledge-agent/data/kb/
+personal-knowledge-agent/data/kb/*
+!personal-knowledge-agent/data/kb/*.md
+*.sqlite
+*.sqlite3
+
+# ---- Local tooling config ----
+.claude/
+.DS_Store
+*.log

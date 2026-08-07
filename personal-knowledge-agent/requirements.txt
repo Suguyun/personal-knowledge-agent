@@ -1,0 +1,39 @@
+# Personal Knowledge Agent - dependencies
+# LLM: official Zhipu zai-sdk (ZhipuAiClient) — see graph/llm.py
+# Embedding: sentence-transformers local backend (default) or zhipu API.
+
+# Official Zhipu SDK for GLM-5.2
+zai-sdk>=0.2.3
+
+# Optional: only needed when EMBEDDING_BACKEND=zhipu (API embedding).
+# The default local backend (sentence-transformers) does not need this.
+openai>=1.35.0
+
+# Graph orchestration
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=1.0.0
+# Async sqlite checkpointer (async nodes require AsyncSqliteSaver)
+aiosqlite>=0.20.0
+
+# State / config
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+
+# Local vector store + text loading/splitting
+chromadb>=0.5.0
+langchain-text-splitters>=0.2.0
+langchain-community>=0.2.0
+
+# Reranker (optional but recommended)
+# sentence-transformers downloads bge-reranker-v2-m3 (~2GB) on first use.
+# The pipeline degrades gracefully to raw retrieval scores when unavailable.
+# NOTE: transformers 5.x requires torch>=2.4; keep <5 so it works with the
+# torch version pip resolves for your Python (see README troubleshooting).
+sentence-transformers>=3.0.0,<6.0.0
+transformers>=4.40.0,<5.0.0
+
+# CLI polish
+rich>=13.7.0
+
+# Runtime environment variables
+python-dotenv>=1.0.1
