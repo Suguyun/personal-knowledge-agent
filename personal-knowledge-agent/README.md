@@ -91,6 +91,12 @@ generate_node ──质量不达标且 retry<1──→ rewrite_query_node → k
 | `list_documents()` | 列出全部文档及章节/更新时间概览 |
 | `create_note(title, content)` | 写入 `data/notes/` 并立即加入索引 |
 
+三个工具都以原生 Function Calling 格式交给模型（`ZhipuLLM` 向 API 传 `tools=`），
+生成节点负责执行模型请求的调用、把结果回灌并继续对话，最多 `MAX_TOOL_ITERATIONS`
+轮（默认 3，达到上限会明确告知而非静默收尾）。工具执行失败会作为文本回给模型，
+由它决定下一步。`knowledge_search` 另有一条确定性路径：由 `knowledge_search`
+节点直接调用，不依赖模型主动发起。
+
 ## 引用与规则
 
 - 回答严格基于检索结果，附带 `[来源: 文档名, 章节]` 标注。
@@ -126,6 +132,9 @@ generate_node ──质量不达标且 retry<1──→ rewrite_query_node → k
    可按错误码在 `nodes.py` 增加专门重试逻辑。
 6. **`build_graph` 是 async 的**：`AsyncSqliteSaver` 必须在事件循环内构造。
    在 async 上下文用 `await build_graph(...)`；脚本场景用 `build_graph_sync()`。
+7. **工具调用循环尚未经真实 API 验证**：序列化（工具 schema、`tool_calls`
+   往返、畸形参数判定）与循环控制（单轮、未知工具、轮次上限、无工具降级）
+   均有桩件测试覆盖，但"GLM-5.2 真的会按要求发起工具调用"只能在真实调用中确认。
 
 ## 下一步建议
 
