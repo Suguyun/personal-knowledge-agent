@@ -16,9 +16,10 @@ import argparse
 import asyncio
 import logging
 import sys
+import uuid
 
 from config import Settings, get_settings, validate_api_key
-from graph.builder import build_graph, close_graph
+from graph.builder import build_graph, clear_thread, close_graph
 from rag.loader import load_documents
 from rag.splitter import split_documents
 from rag.vectorstore import VectorStore
@@ -111,14 +112,24 @@ async def _run_session(settings: Settings, graph) -> None:
 async def _run_query(settings: Settings, graph, query: str) -> None:
     from langchain_core.messages import HumanMessage
 
+    # A one-shot run must not inherit history from earlier runs: the
+    # checkpointer persists to SQLite, so a fixed thread_id would load the
+    # previous invocation's conversation and feed it back in as context.
+    thread_id = f"one-shot-{uuid.uuid4().hex[:8]}"
+
     print("问题:", query)
     print("助手: ", end="", flush=True)
     state = {"messages": [HumanMessage(content=query)], "retry_count": 0}
-    result = await graph.ainvoke(
-        state,
-        config={"configurable": {"thread_id": "one-shot"}},
-    )
-    print(result.get("final_answer") or "(无回答)")
+    try:
+        result = await graph.ainvoke(
+            state,
+            config={"configurable": {"thread_id": thread_id}},
+        )
+        print(result.get("final_answer") or "(无回答)")
+    finally:
+        # The id is unique per invocation, so nothing would ever reuse or
+        # prune it — drop the thread rather than leaking it into the DB.
+        await clear_thread(graph, thread_id)
 
 
 async def main() -> None:

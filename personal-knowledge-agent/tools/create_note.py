@@ -20,7 +20,12 @@ from langchain_core.tools import tool
 logger = logging.getLogger(__name__)
 
 
-def _make_create_note(store: Any | None, notes_dir: Path | None = None):
+def _make_create_note(
+    store: Any | None,
+    notes_dir: Path | None = None,
+    chunk_size: int = 512,
+    chunk_overlap: int = 64,
+):
     """Closure builder so the tool is bound to store + notes dir at runtime."""
 
     @tool
@@ -73,8 +78,17 @@ def _make_create_note(store: Any | None, notes_dir: Path | None = None):
         try:
             from rag.splitter import split_documents
 
-            chunks = split_documents([doc])
-            n = store.add_documents(chunks)
+            chunks = split_documents(
+                [doc], chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+            # Re-saving a note under an existing title overwrites the file, so
+            # its previous chunks must be replaced rather than appended (they
+            # would otherwise linger as stale duplicates under fresh ids).
+            # `reindex_path` keys on the file *path* — keying on the file name
+            # would also match a same-named document in the KB directory and
+            # wipe that one instead — and it adds before deleting, so a failure
+            # here cannot lose the note that is already indexed.
+            n = store.reindex_path(str(path), chunks)
         except Exception as exc:
             # The file is written even if indexing fails — surface that clearly.
             logger.exception("Note written but indexing failed")

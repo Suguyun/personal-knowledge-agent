@@ -1,12 +1,16 @@
 """Tool registry for the knowledge agent.
 
 The three tools are runtime-injected with their dependencies (retriever,
-vector store, settings). `get_tools()` returns the `@tool`-decorated callables
-that are bound to `bind_tools` and passed to the LLM in native OpenAI function
-calling format.
+vector store, settings). `get_tools()` returns the `@tool`-decorated callables;
+`build_graph` hands them to the node layer, which exposes them to the model as
+native OpenAI function-calling tools and executes whatever the model asks for
+(see `nodes._tool_enabled_completion` / `nodes._execute_tool_call`).
+`knowledge_search` is additionally invoked directly by the
+`knowledge_search` graph node, which is what makes the deterministic
+retrieve→rerank→generate path work.
 
 Usage:
-    tools = get_tools(retriever=retriever, store=store)
+    tools = get_tools(settings=settings, retriever=retriever, store=store)
     tool_map = {t.name: t for t in tools}   # used by the node layer
 """
 
@@ -42,7 +46,12 @@ def get_tools(
     return [
         _make_knowledge_search(retriever=retriever),
         _make_list_documents(store=store),
-        _make_create_note(store=store, notes_dir=settings.notes_dir),
+        _make_create_note(
+            store=store,
+            notes_dir=settings.notes_dir,
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+        ),
     ]
 
 

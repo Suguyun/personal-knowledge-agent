@@ -18,6 +18,7 @@ dependencies from a module-level `DEPENDENCIES` holder set by `build_graph`.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Awaitable, Callable
 
@@ -25,7 +26,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import BaseTool
 
 from config import Settings, get_settings
-from graph.edges import BRANCH_DIRECT, BRANCH_KNOWLEDGE
+from graph.edges import BRANCH_DIRECT, BRANCH_KNOWLEDGE, INTENT_MARKERS, INTENT_PREFIX
 from graph.state import KnowledgeState
 from prompts.system_prompt import (
     DIRECT_RESPONSE_SYSTEM_PROMPT,
@@ -70,7 +71,7 @@ async def intent_router(state: KnowledgeState) -> dict:
     """
     query = _latest_user_text(state)
     if not query:
-        return {"current_query": f"INTENT:{BRANCH_KNOWLEDGE}", "retry_count": 0}
+        return {"current_query": f"{INTENT_PREFIX}{BRANCH_KNOWLEDGE}", "retry_count": 0}
 
     try:
         label = await _classify_intent(query)
@@ -78,7 +79,7 @@ async def intent_router(state: KnowledgeState) -> dict:
         logger.warning("Intent classification failed (%s); defaulting to knowledge.", exc)
         label = BRANCH_KNOWLEDGE
 
-    return {"current_query": f"INTENT:{label}", "retry_count": 0}
+    return {"current_query": f"{INTENT_PREFIX}{label}", "retry_count": 0}
 
 
 async def knowledge_search(state: KnowledgeState) -> dict:
@@ -87,7 +88,7 @@ async def knowledge_search(state: KnowledgeState) -> dict:
     The tool call + result are appended to `messages` (as AIMessage/ToolMessage)
     so the generation node sees the standard tool-call transcript.
     """
-    query = _latest_user_text(state)
+    query = _active_query(state)
     tool = DEPS.tool_by_name.get("knowledge_search")
     if tool is None:
         return {"retrieved_docs": []}
@@ -118,19 +119,22 @@ async def knowledge_search(state: KnowledgeState) -> dict:
 
 
 async def direct_response(state: KnowledgeState) -> dict:
-    """Chat branch: answer the user directly without retrieval."""
+    """Chat branch: answer directly, without retrieval, but with tools.
+
+    Tools matter on this branch too: "帮我记一下…" is chat-shaped, not
+    knowledge-shaped, so `create_note` has to be reachable here as well.
+    """
     query = _latest_user_text(state)
     messages = _trim_history(state) + [HumanMessage(content=query)]
     sys = SystemMessage(content=DIRECT_RESPONSE_SYSTEM_PROMPT)
 
     try:
-        response = await DEPS.llm.ainvoke([sys] + messages)
-        text = _as_text(response)
+        text, transcript = await _tool_enabled_completion([sys] + messages)
     except Exception as exc:
         logger.exception("direct_response failed")
-        text = f"抱歉，我暂时无法处理。原因: {exc}"
+        text, transcript = f"抱歉，我暂时无法处理。原因: {exc}", []
 
-    return {"final_answer": text, "messages": [AIMessage(content=text)]}
+    return {"final_answer": text, "messages": [*transcript, AIMessage(content=text)]}
 
 
 async def rerank_node(state: KnowledgeState) -> dict:
@@ -147,9 +151,7 @@ async def rerank_node(state: KnowledgeState) -> dict:
 async def generate_node(state: KnowledgeState) -> dict:
     """Synthesize the final, cited answer from the retrieved chunks."""
     hits = state.get("retrieved_docs") or []
-    query = state.get("current_query", "")
-    if query.startswith("INTENT:"):
-        query = query.split(":", 1)[1] if ":" in query else ""
+    query = _active_query(state)
 
     context = _render_context(hits)
     messages = _trim_history(state) + [
@@ -158,13 +160,12 @@ async def generate_node(state: KnowledgeState) -> dict:
 
     sys = SystemMessage(content=_generate_system_prompt(context))
     try:
-        response = await DEPS.llm.ainvoke([sys] + messages)
-        text = _as_text(response)
+        text, transcript = await _tool_enabled_completion([sys] + messages)
     except Exception as exc:
         logger.exception("generate_node failed")
-        text = f"抱歉，生成回答时出现错误: {exc}"
+        text, transcript = f"抱歉，生成回答时出现错误: {exc}", []
 
-    return {"final_answer": text, "messages": [AIMessage(content=text)]}
+    return {"final_answer": text, "messages": [*transcript, AIMessage(content=text)]}
 
 
 async def rewrite_query_node(state: KnowledgeState) -> dict:
@@ -188,13 +189,56 @@ def _latest_user_text(state: KnowledgeState) -> str:
     return ""
 
 
+def _active_query(state: KnowledgeState) -> str:
+    """The query that should drive this turn's retrieval *and* generation.
+
+    `current_query` holds the real query once the turn is under way, but
+    `intent_router` first parks an `INTENT:<branch>` marker there — so only a
+    non-marker value counts as a query. This is what makes the retry loop
+    work: `rewrite_query_node` writes the rewritten query to `current_query`,
+    and retrieval has to pick that up instead of re-reading the original user
+    message (which would make the second retrieval identical to the first).
+
+    Compared against the exact marker set, not a prefix test: a rewritten
+    query could itself start with `INTENT:` (the user may well be asking about
+    intent routing), and treating that as a marker would silently fall back to
+    the original query — reintroducing the very bug this guard exists for.
+    """
+    current = (state.get("current_query") or "").strip()
+    if current and current not in INTENT_MARKERS:
+        return current
+    return _latest_user_text(state)
+
+
 def _trim_history(state: KnowledgeState, settings: Settings | None = None) -> list:
     """Keep the last N human/ai turns (budgeted) for context."""
     settings = settings or get_settings()
     budget = settings.max_history_messages
     messages = state.get("messages", [])
-    # Exclude ToolMessages (transient per-turn), keep conversation turns.
-    conversational = [m for m in messages if not isinstance(m, ToolMessage)]
+    # Exclude ToolMessages (transient per-turn) and the content-less AIMessage
+    # that `knowledge_search` appends to carry its tool_calls: `ZhipuLLM` drops
+    # tool_calls when converting to the SDK payload, so forwarding it would put
+    # an empty assistant turn in front of the model. Neither is conversation.
+    # The `isinstance(m.content, str)` guard matters: langchain allows
+    # AIMessage(content=[{...}]) for tool/multimodal turns, and a list has no
+    # .strip() — such a message must be kept, not crash the turn.
+    conversational = [
+        m
+        for m in messages
+        if not isinstance(m, ToolMessage)
+        and not (
+            isinstance(m, AIMessage)
+            and isinstance(m.content, str)
+            and not m.content.strip()
+        )
+    ]
+    # The graph appends the current turn's HumanMessage to `messages` before a
+    # node runs, and every caller re-adds the question itself (raw in
+    # direct_response, framed as "用户问题: …" in generate_node). Leaving it in
+    # would send the question twice in two framings and burn one of the
+    # `max_history_messages` slots on it.
+    while conversational and isinstance(conversational[-1], HumanMessage):
+        conversational.pop()
     return conversational[-budget:]
 
 
@@ -206,6 +250,122 @@ def _as_text(response: Any) -> str:
     if hasattr(response, "content"):
         return str(response.content or "")
     return str(response)
+
+
+# ---------------------------------------------------------------------------
+# Native function calling (tool loop)
+# ---------------------------------------------------------------------------
+def _llm_accepts_tools(llm: Any) -> bool:
+    """Whether `llm.ainvoke` takes a `tools=` keyword.
+
+    Checked up front rather than by catching TypeError, so an unrelated
+    TypeError raised *inside* a call is never mistaken for "no tool support".
+    """
+    try:
+        return "tools" in inspect.signature(llm.ainvoke).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _response_tool_calls(response: Any) -> list[dict[str, Any]]:
+    """Tool calls requested by the model, normalized by the LLM adapter."""
+    calls = getattr(response, "tool_calls", None) or []
+    return [c for c in calls if isinstance(c, dict)]
+
+
+def _ai_message_with_calls(response: Any, calls: list[dict[str, Any]]) -> AIMessage:
+    """Rebuild the assistant turn that requested tools (for the transcript)."""
+    return AIMessage(
+        content=_as_text(response),
+        tool_calls=[
+            {
+                "name": c.get("name") or "",
+                "args": c.get("args") if isinstance(c.get("args"), dict) else {},
+                "id": c.get("id") or "",
+            }
+            for c in calls
+        ],
+    )
+
+
+async def _execute_tool_call(call: dict[str, Any]) -> str:
+    """Run one model-requested tool call and return its result as text.
+
+    Per spec, tool failures come back to the model as structured text so it can
+    decide what to do next, instead of aborting the run.
+    """
+    name = (call.get("name") or "").strip()
+    if call.get("parse_error"):
+        return f"工具调用参数解析失败: {call['parse_error']}"
+    tool = DEPS.tool_by_name.get(name)
+    if tool is None:
+        return (f"错误: 不存在名为 {name!r} 的工具。"
+                f"可用工具: {sorted(DEPS.tool_by_name)}")
+    args = call.get("args")
+    if not isinstance(args, dict):
+        return f"错误: {name} 的参数必须是 JSON 对象，实际收到 {type(args).__name__}。"
+    try:
+        return str(await tool.ainvoke(args))
+    except Exception as exc:
+        logger.exception("Tool %s failed", name)
+        return f"工具 {name} 执行失败: {exc}"
+
+
+async def _tool_enabled_completion(conversation: list) -> tuple[str, list]:
+    """Call the model, running whatever tools it asks for, until it answers.
+
+    When the model requests no tool — the case for every query that doesn't
+    need one — this is a single call with the same arguments as the tool-less
+    implementation, so existing behaviour is unchanged.
+
+    Args:
+        conversation: system + history + current-turn messages.
+
+    Returns:
+        `(final_text, transcript)`, where transcript holds the extra
+        AIMessage/ToolMessage pairs (chronological) to append to the state.
+    """
+    settings = DEPS.settings or get_settings()
+    budget = max(1, int(settings.max_tool_iterations))
+    tools = DEPS.tools or None
+    use_tools = bool(tools) and DEPS.llm is not None and _llm_accepts_tools(DEPS.llm)
+
+    convo = list(conversation)
+    transcript: list = []
+
+    for iteration in range(budget):
+        if use_tools:
+            try:
+                response = await DEPS.llm.ainvoke(convo, tools=tools)
+            except Exception:
+                # If the API rejects our tools payload, keep the agent usable by
+                # falling back to the plain call rather than failing every query.
+                logger.warning("Tool-enabled call failed; retrying without tools.",
+                               exc_info=True)
+                use_tools = False
+                response = await DEPS.llm.ainvoke(convo)
+        else:
+            response = await DEPS.llm.ainvoke(convo)
+
+        calls = _response_tool_calls(response)
+        if not calls:
+            return _as_text(response), transcript
+
+        ai_msg = _ai_message_with_calls(response, calls)
+        convo.append(ai_msg)
+        transcript.append(ai_msg)
+        for call in calls:
+            tool_msg = ToolMessage(
+                content=await _execute_tool_call(call),
+                tool_call_id=call.get("id") or "",
+            )
+            convo.append(tool_msg)
+            transcript.append(tool_msg)
+        logger.info("Tool iteration %d/%d: ran %d call(s).",
+                    iteration + 1, budget, len(calls))
+
+    logger.warning("Tool loop hit its %d-iteration cap.", budget)
+    return "（已达到工具调用次数上限，未能给出最终回答。）", transcript
 
 
 def _parse_hits(raw: Any) -> list[dict[str, Any]]:

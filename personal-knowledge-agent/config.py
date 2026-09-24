@@ -70,7 +70,11 @@ class Settings(BaseSettings):
     # --- Graph behaviour --------------------------------------------------
     max_history_messages: int = 8
     max_retry: int = 1
-    # Control which nodes stream tokens to the CLI (used by main.py).
+    # Upper bound on model→tool→model round trips inside one generation step.
+    max_tool_iterations: int = 3
+    # Reserved, currently inert: `ZhipuLLM` supports a `stream_tokens`
+    # callback, but nothing passes one in — `main.py` does not forward this to
+    # `build_graph`, so the CLI still prints whole answers at the end.
     stream_tokens: bool = True
 
     # --- API error codes (GLM-specific) -----------------------------------

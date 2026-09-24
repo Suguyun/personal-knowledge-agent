@@ -2,6 +2,9 @@
 .env
 *.env.local
 *.env.*
+# ...but keep the template: without it `cp .env.example .env` (README step 2)
+# fails on a fresh clone. The glob above matched it, so it was never committed.
+!.env.example
 
 # ---- Python ----
 __pycache__/
