@@ -29,7 +29,7 @@ from graph.edges import (
     route_after_rewrite,
     route_intent,
 )
-from graph.llm import ZhipuLLM
+from graph.llm import OpenAICompatLLM
 from graph.state import KnowledgeState
 from rag.retriever import Retriever
 from rag.vectorstore import VectorStore
@@ -55,7 +55,7 @@ async def build_graph(
         settings: 应用配置(默认为全局).
         retriever: 预先构建的 Retriever(省略时基于 store 构建).
         store: 预先构建的 VectorStore(省略时用默认值构建).
-        llm: 基于 zai-sdk 的 ZhipuLLM 适配器(省略时构建).
+        llm: OpenAI 兼容的 LLM 适配器(省略时按 settings 构建).
         client: 为向后兼容保留;内部已不再使用.
         stream_tokens: 可选 `callable(str)`,在生成过程中每收到一个流式
                        token 即调用(供 CLI 使用).
@@ -73,19 +73,19 @@ async def build_graph(
 
     tools = get_tools(settings=settings, retriever=retriever, store=store)
 
-    # 每次 LLM 调用都用官方 zai-sdk 的 ZhipuAiClient.Thinking 默认保持开启
-    # (这是 GLM-5.2 本身的强项);转发 `stream_tokens`,以便交互式 CLI 接上
-    # 回调后能流式输出 token.max_tokens 给得宽裕,避免推理轨迹吃掉最终回答
-    # 的预算.
+    # 用哪家模型完全由 settings 决定(llm_base_url / llm_model / llm_api_key).
+    # Thinking 保持模型默认(DeepSeek 与 GLM 都默认开启);转发
+    # `stream_tokens`,以便交互式 CLI 接上回调后能流式输出 token.max_tokens
+    # 给得宽裕,避免推理轨迹吃掉最终回答的预算.
     llm = llm or (
-        ZhipuLLM(
-            api_key=settings.zhipu_api_key,
+        OpenAICompatLLM(
+            api_key=settings.llm_api_key,
             model=settings.resolve_model_name,
-            base_url=settings.openai_base_url,
+            base_url=settings.llm_base_url,
             temperature=0.3,
             stream_tokens=stream_tokens,
         )
-        if settings.zhipu_api_key
+        if settings.llm_api_key
         else None
     )
 
@@ -93,7 +93,7 @@ async def build_graph(
         settings=settings,
         llm=llm,
         tools=tools,
-        client=None,  # 遗留占位,ZhipuLLM 下未使用
+        client=None,  # 遗留占位,OpenAICompatLLM 下未使用
         stream_tokens=stream_tokens,
     )
 

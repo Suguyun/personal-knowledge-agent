@@ -1,12 +1,9 @@
 # Personal Knowledge Agent - dependencies
-# LLM: official Zhipu zai-sdk (ZhipuAiClient) — see graph/llm.py
+# LLM: any OpenAI-compatible endpoint (DeepSeek / Zhipu BigModel / ...),
+# reached through the openai SDK — see graph/llm.py.
 # Embedding: sentence-transformers local backend (default) or zhipu API.
 
-# Official Zhipu SDK for GLM-5.2
-zai-sdk>=0.2.3
-
-# Optional: only needed when EMBEDDING_BACKEND=zhipu (API embedding).
-# The default local backend (sentence-transformers) does not need this.
+# Serves BOTH the LLM and the optional zhipu embedding backend.
 openai>=1.35.0
 
 # Graph orchestration

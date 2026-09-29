@@ -1,6 +1,6 @@
 # 个人知识助手 Agent（Personal Knowledge Agent）
 
-基于 **GLM-5.2 + LangGraph + ChromaDB** 的本地个人知识库问答 Agent：把你的 markdown 笔记检索出来，组织成带引用的回答，并支持把新内容沉淀回知识库。
+基于 **LangGraph + ChromaDB** 的本地个人知识库问答 Agent，LLM 走任意 OpenAI 兼容服务（默认 DeepSeek，可改 `.env` 切回智谱 GLM-5.2）：把你的 markdown 笔记检索出来，组织成带引用的回答，并支持把新内容沉淀回知识库。
 
 - **零幻觉** —— 回答严格基于检索结果，检索不到就如实说明"知识库中未找到"，绝不编造。
 - **强制引用** —— 每条结论都标注 `[来源: 文档名, 章节]`，可回溯。
@@ -47,7 +47,7 @@ generate_node ──质量不达标且 retry_count < max_retry──→ rewrite_
 cd personal-knowledge-agent
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # 编辑 .env，填入 ZHIPU_API_KEY（https://open.bigmodel.cn 获取）
+cp .env.example .env      # 编辑 .env，填入 LLM_API_KEY（DeepSeek: https://platform.deepseek.com）
 
 python main.py -q "2026年OKR是什么"   # 单次提问
 python main.py                        # 交互式对话
@@ -55,7 +55,7 @@ python main.py --rebuild              # 清空 Chroma 集合并重建索引
 python test_agent.py --offline        # 不调用 API/LLM，验证整条流水线可构建
 ```
 
-除 `--offline` 外都需要 `ZHIPU_API_KEY`，缺失时 `config.validate_api_key` 会在启动时快速失败。完整的配置说明（embedding 后端切换、reranker 开关、路径规则）见主文档。
+除 `--offline` 外都需要 `LLM_API_KEY`，缺失时 `config.validate_api_key` 会在启动时快速失败。完整的配置说明（LLM 换厂商、embedding 后端切换、reranker 开关、路径规则）见主文档。
 
 ## 文档索引
 
@@ -71,7 +71,7 @@ python test_agent.py --offline        # 不调用 API/LLM，验证整条流水�
 ## 已知限制
 
 1. **索引是"全量重建"模型** —— 启动时仅在集合为空时建索引，`data/kb/` 中被删除或修改的文件永远不会被清理；`--rebuild` 是唯一刷新手段，而它会连笔记一起清空。
-2. **工具调用循环未经真实 API 验证** —— 序列化与循环控制均有桩件测试覆盖，但"GLM-5.2 会按要求发起工具调用"只能在真实调用中确认。
+2. **工具调用循环已经过真实 API 验证（2026-09-29，DeepSeek `deepseek-flash`）** —— 实测确认模型会发起工具调用、`create_note` 真的落盘写入、带 `tools=` 的请求被接受。但这只是一次性实测而非回归测试，改动该链路或换厂商后需重新验证。
 3. **单用户本地场景** —— 无鉴权、无多租户，向量库与笔记均为本地明文。
 
 完整的限制清单与下一步建议见 [`personal-knowledge-agent/README.md`](personal-knowledge-agent/README.md) 的「已知限制」与「下一步建议」两节。

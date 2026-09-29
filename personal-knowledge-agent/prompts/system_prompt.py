@@ -1,7 +1,8 @@
 """个人知识 agent 的 system prompt.
 
-关键(依据架构文档):GLM-5.2 默认开启内部思考,因此本 prompt 不得包含任何推理
-协议,ReAct 模板或 "think step by step" 类指令.它只包含:
+关键(依据架构文档):所用模型自带内部思考能力(GLM-5.2 默认开启;DeepSeek 的
+thinking 模式亦然),因此本 prompt 不得包含任何推理协议,ReAct 模板或
+"think step by step" 类指令.它只包含:
 
    - 角色定义
    - 绝对规则(知识库优先,零幻觉,引用)

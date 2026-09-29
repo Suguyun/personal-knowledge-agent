@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 class _Deps:
     settings: Settings | None = None
-    llm: Any = None                # ZhipuLLM(glm-5.2)
+    llm: Any = None                # OpenAICompatLLM(OpenAI 兼容服务)
     tools: list[BaseTool] = []
     tool_by_name: dict[str, BaseTool] = {}
     stream_tokens: Callable[[str], None] | None = None
@@ -52,7 +52,7 @@ DEPS = _Deps()
 
 def _set_deps(settings, llm, tools, client, stream_tokens) -> None:
     # `client` 为兼容调用方保留,但已不再使用:
-    # 所有 LLM 调用都走 ZhipuLLM 适配器(`llm`).
+    # 所有 LLM 调用都走 OpenAICompatLLM 适配器(`llm`).
     DEPS.settings = settings
     DEPS.llm = llm
     DEPS.tools = tools
@@ -66,7 +66,7 @@ def _set_deps(settings, llm, tools, client, stream_tokens) -> None:
 async def intent_router(state: KnowledgeState) -> dict:
     """把最新的用户消息分类为 knowledge 或 direct.
 
-    使用关闭 thinking 的 GLM 调用(廉价),并把决策以 `INTENT:<branch>`
+    使用关闭 thinking 的模型调用(廉价),并把决策以 `INTENT:<branch>`
     存到 `current_query`;`route_intent` 再映射回来.
     """
     query = _latest_user_text(state)
@@ -208,26 +208,35 @@ def _active_query(state: KnowledgeState) -> str:
     return _latest_user_text(state)
 
 
+def _is_intermediate_turn(message: AIMessage) -> bool:
+    """该 assistant 轮次是否只是工具循环的中间步骤,不该进入对话历史.
+
+    两种都算:请求了工具的轮次(它的 ToolMessage 会在 `_trim_history` 里被
+    一并剥掉,于是留下"有 tool_calls 却没有对应工具结果"的 assistant 消息
+    —— 这在各家的 OpenAI 兼容 API 上都是**非法载荷**,请求会被直接拒绝),
+    以及没有任何内容的空轮次.
+
+    `isinstance(content, str)` 这个 guard 很重要:langchain 允许用
+    AIMessage(content=[{...}]) 表示工具/多模态轮次,而 list 没有 .strip()
+    —— 这类消息必须保留,不能让它把本轮搞崩.
+    """
+    if getattr(message, "tool_calls", None):
+        return True
+    return isinstance(message.content, str) and not message.content.strip()
+
+
 def _trim_history(state: KnowledgeState, settings: Settings | None = None) -> list:
     """保留最近 N 轮 human/ai 对话(受预算限制)作为上下文."""
     settings = settings or get_settings()
     budget = settings.max_history_messages
     messages = state.get("messages", [])
-    # 排除 ToolMessage(每轮临时的)以及 `knowledge_search` 为携带 tool_calls
-    # 而追加的无内容 AIMessage:`ZhipuLLM` 在转成 SDK 载荷时会丢掉
-    # tool_calls,转发它只会把一个空的 assistant 轮次摆到模型面前.两者
-    # 都不算对话.`isinstance(m.content, str)` 这个 guard 很重要:langchain
-    # 允许用 AIMessage(content=[{...}]) 表示工具/多模态轮次,而 list 没有
-    # .strip() —— 这类消息必须保留,不能让它把本轮搞崩.
+    # 排除 ToolMessage(每轮临时的)与工具循环的中间 assistant 轮次,
+    # 它们都不算对话(理由见 `_is_intermediate_turn`).
     conversational = [
         m
         for m in messages
         if not isinstance(m, ToolMessage)
-        and not (
-            isinstance(m, AIMessage)
-            and isinstance(m.content, str)
-            and not m.content.strip()
-        )
+        and not (isinstance(m, AIMessage) and _is_intermediate_turn(m))
     ]
     # graph 会在 node 运行前把本轮 HumanMessage 追加到 `messages`,而每个
     # 调用方又会自己重新加上问题(direct_response 里是原文,generate_node
@@ -270,7 +279,14 @@ def _response_tool_calls(response: Any) -> list[dict[str, Any]]:
 
 
 def _ai_message_with_calls(response: Any, calls: list[dict[str, Any]]) -> AIMessage:
-    """重建请求过工具的 assistant 轮次(用于记录)."""
+    """重建请求过工具的 assistant 轮次(用于记录).
+
+    `reasoning_content` 必须随该轮次一起保留:带思考的模型要求请求带 `tools=`
+    时把历史轮次的推理轨迹原样回传,否则 API 会拒绝整个请求.存进
+    `additional_kwargs`(checkpointer 会持久化它)才能在下一轮由
+    `llm._to_dict` 取回并回传.
+    """
+    reasoning = getattr(response, "reasoning_content", None) or ""
     return AIMessage(
         content=_as_text(response),
         tool_calls=[
@@ -281,6 +297,7 @@ def _ai_message_with_calls(response: Any, calls: list[dict[str, Any]]) -> AIMess
             }
             for c in calls
         ],
+        additional_kwargs={"reasoning_content": reasoning} if reasoning else {},
     )
 
 
@@ -409,15 +426,15 @@ def _generate_system_prompt(context: str) -> str:
 
 
 async def _classify_intent(query: str) -> str:
-    """关闭 thinking 的 GLM 调用:knowledge 还是 direct(无检索)."""
+    """关闭 thinking 的廉价调用:knowledge 还是 direct(无检索)."""
     system = (
         "判断下面这句用户消息是否需要查询个人知识库。"
         "需要检索知识（关于用户个人记录、资料、笔记、文档、过往内容等）返回 knowledge；"
         "仅是寒暄/闲聊/询问助手能力/与知识库无关的开放性问题返回 direct。"
         "只输出 knowledge 或 direct，不要输出其他内容。"
     )
-    if DEPS.settings is None or not DEPS.settings.zhipu_api_key:
-        raise RuntimeError("未配置 ZHIPU_API_KEY，无法进行分类路由。")
+    if DEPS.settings is None or not DEPS.settings.llm_api_key:
+        raise RuntimeError("未配置 LLM_API_KEY，无法进行分类路由。")
     # 关闭 thinking + 极小的 token 预算,让路由又便宜又快.
     classifier = _make_classifier_llm(DEPS.settings)
     response = await classifier.ainvoke(
@@ -429,22 +446,38 @@ async def _classify_intent(query: str) -> str:
     return BRANCH_KNOWLEDGE
 
 
-def _make_classifier_llm(settings: Settings) -> Any:
-    """构建一个专为廉价,关闭 thinking 的分类调优的 ZhipuLLM."""
-    from graph.llm import ZhipuLLM
+# 分类器按配置缓存.`intent_router` 每轮对话都会调用它,而 `OpenAICompatLLM`
+# 持有一个 httpx 连接池(异步 client 不会自行关闭)——每轮新建一个会把 socket
+# 一路泄漏下去,长会话尤其明显.配置变了(换模型/换厂商)自然会落到新 key 上.
+_classifier_cache: dict[tuple, Any] = {}
 
-    return ZhipuLLM(
-        api_key=settings.zhipu_api_key,
-        model=settings.resolve_model_name,
-        base_url=settings.openai_base_url,
-        temperature=0,
-        max_tokens=16,
-        thinking={"type": "disabled"},
-    )
+
+def _make_classifier_llm(settings: Settings) -> Any:
+    """构建一个专为廉价,关闭 thinking 的分类调优的适配器(按配置缓存).
+
+    `thinking={"type": "disabled"}` 的形状 DeepSeek 与智谱一致,无需分支;
+    不开思考才敢把 `max_tokens` 压到 16 —— 否则推理轨迹会吃掉这 16 个 token,
+    分类结果恒为空、每次都被兜底成 knowledge.
+    """
+    from graph.llm import OpenAICompatLLM
+
+    key = (settings.llm_api_key, settings.llm_base_url, settings.resolve_model_name)
+    classifier = _classifier_cache.get(key)
+    if classifier is None:
+        classifier = OpenAICompatLLM(
+            api_key=settings.llm_api_key,
+            model=settings.resolve_model_name,
+            base_url=settings.llm_base_url,
+            temperature=0,
+            max_tokens=16,
+            thinking={"type": "disabled"},
+        )
+        _classifier_cache[key] = classifier
+    return classifier
 
 
 async def _rewrite(query: str, state: KnowledgeState) -> str:
-    """让 GLM 改写一个未能检索到有用内容的查询."""
+    """让模型改写一个未能检索到有用内容的查询."""
     messages = _trim_history(state)
     prompt = (
         f"上一条查询未能从知识库中检索到有用信息。请将下面的查询改写得更具体、"

@@ -1,44 +1,56 @@
-"""轻量 LLM 适配器,包装官方 `zai-sdk`(ZhipuAiClient).
+"""轻量 LLM 适配器,包装任意 OpenAI 兼容的 chat completions 服务.
 
 graph node 通过 `llm.ainvoke(messages, tools=None)` 调用,其中 `messages` 是
 langchain 消息对象列表(HumanMessage / SystemMessage / AIMessage /
-ToolMessage).本适配器把它们转成 `zai` SDK 的普通 dict 格式,并返回一个暴露
-`.content` 与 `.tool_calls` 的轻量结果对象,因此 graph 其余部分(nodes.py 中
-的 `_as_text`)无需改动即可工作.
+ToolMessage).本适配器把它们转成普通 dict,并把响应归一化成一个只暴露
+`.content` / `.text` / `.tool_calls` 的轻量结果对象,因此 graph 其余部分
+(nodes.py 中的 `_as_text`)无需改动即可工作.
 
-为什么不用 `ChatOpenAI` / `langchain_openai`?
+为什么需要这一层?
 
-    GLM-5.2 默认会跑内部思考.开启 thinking 后,API 把推理轨迹放在
-    `reasoning_content`,最终回答放在 `content`.如果 `max_tokens` 太小,
-    思考轨迹会吃掉全部额度,`content` 返回空 —— 正是我们见过的空回答
-    bug.官方 SDK 提供了第一等的 `thinking` 控制以及合理的 token 预算,
-    因此回答总能生成出来.
+    它把「用哪家模型」收敛成三行配置(base_url / model / api_key).DeepSeek 与
+    智谱 BigModel 都提供 OpenAI 兼容端点,因此同一份适配器可以服务两者 —— 换厂商
+    不需要碰任何节点代码.
+
+thinking 与 reasoning_content
+
+    带思考能力的模型(DeepSeek 的 thinking 模式、GLM-5.2 的默认行为)会把推理
+    轨迹与最终回答分开返回:推理在 `reasoning_content`,回答在 `content`.两个后果:
+
+    1. `max_tokens` 给得太小,推理轨迹会吃掉全部额度,`content` 返回**空字符串**.
+    2. **请求带 `tools=` 时,历史轮次的 `reasoning_content` 必须回传**,否则 API
+       会拒绝该请求(不带 `tools=` 时则会被忽略).这是 DeepSeek 的明确约定,
+       GLM 也接受该字段.
+
+    为此适配器把 `reasoning_content` 一并取出,节点侧存进
+    `AIMessage.additional_kwargs`,再由 `_to_dict` 原样回传.
+
+    `thinking` 这类非标准参数必须经 `extra_body` 下发:openai SDK 只把它序列化成
+    请求体的顶层字段,这恰好是各家期望的形状.
 
 原生 Function Calling
 
-    `tools` 接受 langchain `BaseTool` 对象(见 `tools/`);它们在这里被序列
-    化成 OpenAI function-calling 载荷.适配器只 *携带* tool calls —— 决定
-    是否执行并把结果回灌是调用方的职责(`nodes._tool_enabled_completion`).
-    不传 tools 时,每次调用与无工具实现逐字节一致.
+    `tools` 接受 langchain `BaseTool` 对象(见 `tools/`);它们在这里被序列化成
+    OpenAI function-calling 载荷.适配器只 *携带* tool calls —— 决定是否执行并把
+    结果回灌是调用方的职责(`nodes._tool_enabled_completion`).不传 tools 时,
+    调用参数与无工具实现完全一致.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any, Iterable
 
-from zai import ZhipuAiClient
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
-# GLM-5.2 的 thinking 轨迹可能很长;留足空间,确保推理阶段之后总能
-# 生成最终回答.
+# 带思考的模型推理轨迹可能很长;留足空间,确保推理阶段之后总能生成最终回答.
 DEFAULT_MAX_TOKENS = 8192
 
 
-class ZhipuLLM:
+class OpenAICompatLLM:
     """暴露 `ainvoke(messages, tools?) -> .content / .tool_calls` 的适配器."""
 
     def __init__(
@@ -51,83 +63,74 @@ class ZhipuLLM:
         thinking: dict[str, Any] | None = None,
         stream_tokens: Any | None = None,
     ) -> None:
-        """创建一个 ZhipuLLM client.
+        """创建一个适配器.
 
         Args:
-            api_key: 智谱 API key.
-            model: GLM 模型 id(默认 glm-5.2).
-            base_url: 可选的自定义 base URL(默认为 SDK 自带的).
-            temperature: 采样温度.
-            max_tokens: 最大输出 token 数(默认 8192,足够装下 thinking
-                        轨迹 + 最终回答).
-            thinking: 例如 {"type": "disabled"} 可为廉价的分类调用关闭
-                      thinking;None 则保持模型默认.
-            stream_tokens: 可选回调,每收到一个流式 token 块即调用
-                           (供交互式 CLI 使用).提供时改用流式而非
-                           一次性 create.工具启用的调用会跳过流式
-                           (delta 不携带 tool calls).
+            api_key: 服务商 API key.
+            model: 模型 id(默认 glm-5.2;DeepSeek 用 deepseek-flash 等).
+            base_url: 服务的 OpenAI 兼容 endpoint.
+            temperature: 采样温度.注意带思考的模型会**静默忽略**该参数.
+            max_tokens: 最大输出 token 数(默认 8192,足够装下推理轨迹 + 最终回答).
+            thinking: 例如 {"type": "disabled"} 可为廉价的分类调用关闭思考;
+                      None 则保持模型默认(DeepSeek 与 GLM 都默认开启).
+            stream_tokens: 可选回调,每收到一个流式 token 块即调用(供交互式 CLI
+                           使用).提供时改用流式而非一次性 create.启用了工具的
+                           调用会跳过流式(delta 不携带 tool calls).
         """
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.thinking = thinking
         self.stream_tokens = stream_tokens
-        self._client = ZhipuAiClient(api_key=api_key, base_url=base_url)
+        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     # -- 公开 API ------------------------------------------------------------
     async def ainvoke(self, messages: Iterable[Any], tools: Any = None) -> Any:
         """用 langchain 消息 async 调用模型;返回结果对象.
 
-        在线程中执行同步 SDK 调用,避免 async graph node 阻塞事件循环.
+        `AsyncOpenAI` 本身是异步的,因此不再需要把同步 SDK 丢进线程池.
 
         Args:
             messages: langchain 消息对象.
             tools: 可选,暴露给模型的 langchain `BaseTool` 列表.
         """
-        payload = [self._to_dict(m) for m in messages]
-        tool_payload = _tools_to_payload(tools)
-        return await asyncio.to_thread(self._invoke, payload, tool_payload)
-
-    def invoke(self, messages: Iterable[Any], tools: Any = None) -> Any:
-        """`ainvoke` 的同步版本."""
-        return self._invoke(
-            [self._to_dict(m) for m in messages], _tools_to_payload(tools)
-        )
-
-    # -- 内部实现 -------------------------------------------------------------
-    def _invoke(self, messages: list[dict[str, Any]],
-                tools: list[dict[str, Any]] | None = None) -> "_ZhipuResult":
         kwargs: dict[str, Any] = dict(
             model=self.model,
-            messages=messages,
+            messages=[self._to_dict(m) for m in messages],
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
+        tool_payload = _tools_to_payload(tools)
         if self.thinking is not None:
-            kwargs["thinking"] = self.thinking
-        if tools:
-            kwargs["tools"] = tools
+            # 非标准参数只能经 extra_body 下发(见模块 docstring).
+            kwargs["extra_body"] = {"thinking": self.thinking}
+        if tool_payload:
+            kwargs["tools"] = tool_payload
             kwargs["tool_choice"] = "auto"
 
-        # 流式只累积文本 delta,因此启用了工具的调用必须走一次性
-        # 路径,否则 tool calls 会丢失.
-        if self.stream_tokens is not None and not tools:
-            content = self._invoke_stream(kwargs)
-            return _ZhipuResult(content)
+        # 流式只累积文本 delta,因此启用了工具的调用必须走一次性路径,
+        # 否则 tool calls 会丢失.
+        if self.stream_tokens is not None and not tool_payload:
+            return _LLMResult(await self._invoke_stream(kwargs))
 
-        response = self._client.chat.completions.create(**kwargs)
+        response = await self._client.chat.completions.create(**kwargs)
         msg = response.choices[0].message
-        return _ZhipuResult(msg.content or "", _normalize_tool_calls(msg))
+        return _LLMResult(
+            msg.content or "",
+            _normalize_tool_calls(msg),
+            # `reasoning_content` 是服务商扩展字段,非标准响应里不存在.
+            getattr(msg, "reasoning_content", None),
+        )
 
-    def _invoke_stream(self, kwargs: dict[str, Any]) -> str:
+    # -- 内部实现 -------------------------------------------------------------
+    async def _invoke_stream(self, kwargs: dict[str, Any]) -> str:
         """流式获取响应,并把 token 转发给 `self.stream_tokens`."""
         chunks: list[str] = []
-        stream = self._client.chat.completions.create(**kwargs, stream=True)
-        for chunk in stream:
+        stream = await self._client.chat.completions.create(**kwargs, stream=True)
+        async for chunk in stream:
             if not chunk.choices:
                 continue
-            delta = chunk.choices[0].delta
-            token = getattr(delta, "content", None) or ""
+            token = getattr(chunk.choices[0].delta, "content", None) or ""
             if token:
                 chunks.append(token)
                 try:
@@ -138,7 +141,7 @@ class ZhipuLLM:
 
     @staticmethod
     def _to_dict(message: Any) -> dict[str, Any]:
-        """把 langchain 消息转成 zai SDK 的普通 dict 格式."""
+        """把 langchain 消息转成 chat completions 的普通 dict 格式."""
         role_map = {
             "HumanMessage": "user",
             "SystemMessage": "system",
@@ -158,6 +161,14 @@ class ZhipuLLM:
             calls = getattr(message, "tool_calls", None)
             if calls:
                 d["tool_calls"] = [_to_api_tool_call(c) for c in calls]
+            # 带思考的模型:请求带 tools= 时,历史轮次的推理轨迹必须一起回传,
+            # 否则 API 直接拒绝.不带 tools= 的请求里该字段会被忽略,因此只要
+            # 手上有就带上,无需判断当前这次调用是否带工具.
+            reasoning = (getattr(message, "additional_kwargs", None) or {}).get(
+                "reasoning_content"
+            )
+            if reasoning:
+                d["reasoning_content"] = reasoning
         return d
 
 
@@ -236,16 +247,24 @@ def _normalize_tool_calls(message: Any) -> list[dict[str, Any]]:
     return calls
 
 
-class _ZhipuResult:
-    """最小结果对象,暴露 `.content`,`.text` 与 `.tool_calls`."""
+class _LLMResult:
+    """最小结果对象,暴露 `.content`,`.text`,`.tool_calls` 与 `.reasoning_content`."""
 
-    def __init__(self, content: str, tool_calls: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        content: str,
+        tool_calls: list[dict[str, Any]] | None = None,
+        reasoning_content: str | None = None,
+    ) -> None:
         self.content = content
         self.text = content
         self.tool_calls = tool_calls or []
+        # 调用方(`nodes._ai_message_with_calls`)需要把它存进 assistant 轮次,
+        # 以便带 tools= 的后续请求能原样回传.
+        self.reasoning_content = reasoning_content or ""
 
     def __str__(self) -> str:
         return self.content
 
 
-__all__ = ["ZhipuLLM", "DEFAULT_MAX_TOKENS"]
+__all__ = ["OpenAICompatLLM", "DEFAULT_MAX_TOKENS"]

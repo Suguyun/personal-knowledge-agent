@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 项目根目录 = 包含本文件的目录.
@@ -31,9 +32,14 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), extra="ignore")
 
-    # --- GLM-5.2 ---------------------------------------------------------
-    zhipu_api_key: str = os.getenv("ZHIPU_API_KEY", "")
+    # --- LLM(任何 OpenAI 兼容服务:DeepSeek / 智谱 BigModel 等)----------
+    # 代码默认值保持智谱 GLM-5.2(对齐架构文档的锁定选型);实际调用哪家由
+    # .env 覆盖 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 决定.
+    llm_api_key: str = ""
+    llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     llm_model: str = "glm-5.2"
+
+    # --- Embedding --------------------------------------------------------
     embedding_model: str = "embedding-3"
     # Embedding 后端:"zhipu"(OpenAI 兼容 API,需要单独购买 embedding
     # 资源包)或 "local"(sentence-transformers,完全离线).
@@ -42,10 +48,23 @@ class Settings(BaseSettings):
     local_embedding_model: str = os.getenv(
         "LOCAL_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"
     )
-    # 智谱 BigModel 暴露的 OpenAI 兼容 endpoint.
-    openai_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
-    # 兜底:以防上游改变 model id.
-    chat_model_alias: str = "glm-5.2"
+    # 智谱专用的 key 与 endpoint,只服务 "zhipu" embedding 后端.它与上面的
+    # LLM 配置**相互独立**:LLM 换到别家后 embedding 仍要连智谱(DeepSeek
+    # 不提供 embedding 接口),因此这两个不能被合并.
+    zhipu_api_key: str = os.getenv("ZHIPU_API_KEY", "")
+    zhipu_embedding_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+
+    @model_validator(mode="after")
+    def _inherit_llm_key(self) -> "Settings":
+        """未显式配置 LLM_API_KEY 时,从 ZHIPU_API_KEY 继承.
+
+        只为兼容本适配器之前的老 .env(那时只有一个 key,且 endpoint 就是
+        智谱).限定在 endpoint 仍是智谱的情况下继承,避免把智谱的 key 误发
+        给别家服务 —— 那样只会换来一个令人费解的 401.
+        """
+        if not self.llm_api_key and "bigmodel.cn" in self.llm_base_url:
+            self.llm_api_key = self.zhipu_api_key
+        return self
 
     # --- 存储路径 ----------------------------------------------------
     kb_dir: Path = BASE_DIR / "data" / "kb"
@@ -71,9 +90,9 @@ class Settings(BaseSettings):
     max_retry: int = 1
     # 单个生成步骤内 model→tool→model 往返轮次的上限.
     max_tool_iterations: int = 3
-    # 预留,当前未生效:`ZhipuLLM` 支持 `stream_tokens` callback,但没有地方
-    # 传入 — `main.py` 不会把它转发给 `build_graph`,所以 CLI 仍然在结尾
-    # 一次性打印完整回答.
+    # 预留,当前未生效:`OpenAICompatLLM` 支持 `stream_tokens` callback,但
+    # 没有地方传入 — `main.py` 不会把它转发给 `build_graph`,所以 CLI 仍然
+    # 在结尾一次性打印完整回答.
     stream_tokens: bool = True
 
     # --- API 错误码(GLM 专用) -------------------------------------
@@ -84,7 +103,7 @@ class Settings(BaseSettings):
     def resolve_model_name(self) -> str:
         """发送给 API 的 model id.做成 property 是为了让单处覆盖
         (LLM_MODEL 环境变量)驱动每一次调用."""
-        return self.llm_model or self.chat_model_alias
+        return self.llm_model
 
     @property
     def _resolved(self) -> dict:
@@ -110,10 +129,11 @@ def get_settings() -> Settings:
 
 def validate_api_key(settings: Settings) -> None:
     """若缺少 API key,则给出清晰信息并快速失败."""
-    if not settings.zhipu_api_key:
+    if not settings.llm_api_key:
         raise RuntimeError(
-            "ZHIPU_API_KEY is not set. Copy .env.example to .env and fill in "
-            "your key from https://open.bigmodel.cn."
+            "LLM_API_KEY is not set. Copy .env.example to .env and fill in "
+            "your key — DeepSeek: https://platform.deepseek.com, "
+            "Zhipu: https://open.bigmodel.cn."
         )
 
 

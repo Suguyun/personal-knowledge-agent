@@ -1,7 +1,7 @@
 """`knowledge_search` tool —— 知识库的主要访问入口.
 
-它的 docstring 就是模型看到的 tool schema.由于 GLM-5.2 高度依赖 docstring 来
-理解 tool,这里用中文撰写描述(与 system prompt 一致),并显式列出各参数.
+它的 docstring 就是模型看到的 tool schema.由于模型高度依赖 docstring 来理解
+tool,这里用中文撰写描述(与 system prompt 一致),并显式列出各参数.
 实现委托给注入的 `Retriever`.
 """
 
@@ -27,7 +27,7 @@ def _make_knowledge_search(retriever: Any | None):
 
         Args:
             query: 需要检索的自然语言查询语句，应完整表达用户的真实意图。查询可以
-                   包含中文或英文，例如“如何配置 GLM-5.2 的函数调用”、“2026年OKR”等。
+                   包含中文或英文，例如“如何配置函数调用”、“2026年OKR”等。
             filters: 可选的元数据过滤条件，键值对形式。常用键包括：
                    - "source_doc": 限定只检索某个文档，例如 {"source_doc": "meeting-2026.md"}
                    - "section_header": 限定某个章节

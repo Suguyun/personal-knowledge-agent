@@ -4,7 +4,7 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="p1_title" value="个人知识助手 (Personal Knowledge Agent) 整体架构&#10;GLM-5.2 (zai-sdk) · LangGraph · ChromaDB · 本地 RAG 问答" style="text;html=1;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+        <mxCell id="p1_title" value="个人知识助手 (Personal Knowledge Agent) 整体架构&#10;LLM (OpenAI 兼容) · LangGraph · ChromaDB · 本地 RAG 问答" style="text;html=1;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
           <mxGeometry x="40" y="12" width="700" height="40" as="geometry" />
         </mxCell>
         <mxCell id="p1_c1" value="① 入口层" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#6c8ebf;dashed=1;spacingTop=6;" vertex="1" parent="1">
@@ -16,13 +16,13 @@
         <mxCell id="p1_test" value="test_agent.py&#10;测试脚本: 写示例文档 + 3 条查询&#10;--offline 不调 LLM 只验流水线" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="340" y="110" width="240" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="p1_note" value="配置: config.py (pydantic-settings + python-dotenv)&#10;环境变量: ZHIPU_API_KEY / EMBEDDING_BACKEND(local|zhipu) / KB_DIR / TOP_K / RERANKER_ENABLED…" style="text;html=1;fontSize=12;align=left;verticalAlign=middle;whiteSpace=wrap;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+        <mxCell id="p1_note" value="配置: config.py (pydantic-settings + python-dotenv)&#10;环境变量: LLM_API_KEY / LLM_BASE_URL / LLM_MODEL / EMBEDDING_BACKEND(local|zhipu) / KB_DIR / TOP_K / RERANKER_ENABLED…" style="text;html=1;fontSize=12;align=left;verticalAlign=middle;whiteSpace=wrap;fillColor=none;strokeColor=none;" vertex="1" parent="1">
           <mxGeometry x="600" y="112" width="560" height="56" as="geometry" />
         </mxCell>
         <mxCell id="p1_c6" value="⑥ 外部服务 (智谱 / 本地模型)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;align=left;fillColor=none;strokeColor=#b85450;dashed=1;spacingTop=6;" vertex="1" parent="1">
           <mxGeometry x="1120" y="220" width="360" height="620" as="geometry" />
         </mxCell>
-        <mxCell id="p1_glm" value="GLM-5.2 (智谱 zai-sdk)&#10;graph/llm.py · ZhipuLLM 适配器&#10;thinking 默认开启 · max_tokens=8192&#10;聊天生成 / 意图分类(关闭thinking) / 查询改写" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="p1_glm" value="LLM (OpenAI 兼容: DeepSeek / GLM)&#10;graph/llm.py · OpenAICompatLLM 适配器&#10;thinking 默认开启 · max_tokens=8192&#10;聊天生成 / 意图分类(关闭thinking) / 查询改写" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1150" y="280" width="300" height="110" as="geometry" />
         </mxCell>
         <mxCell id="p1_emb" value="BAAI/bge-small-zh-v1.5 (本地)&#10;sentence-transformers · 离线免额度&#10;EMBEDDING_BACKEND=zhipu 可切换 API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
@@ -133,7 +133,7 @@
         <mxCell id="p1e12" value="调用 @tool" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_nodes" target="p1_create">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="p1e13" value="ZhipuLLM (zai-sdk · glm-5.2)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_nodes" target="p1_glm">
+        <mxCell id="p1e13" value="OpenAICompatLLM (OpenAI 兼容)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_nodes" target="p1_glm">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="p1e14" value="retriever.search()" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#999999;fontSize=10;" edge="1" parent="1" source="p1_ksearch" target="p1_retriever">

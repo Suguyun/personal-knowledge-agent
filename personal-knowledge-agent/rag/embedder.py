@@ -42,7 +42,7 @@ class Embedder:
 
             self._zhipu_client = OpenAI(
                 api_key=self.settings.zhipu_api_key,
-                base_url=self.settings.openai_base_url,
+                base_url=self.settings.zhipu_embedding_base_url,
             )
         return self._zhipu_client
 
