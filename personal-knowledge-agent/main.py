@@ -73,7 +73,8 @@ async def _run_session(settings: Settings, graph) -> None:
     """交互式 REPL."""
     print()
     print("=" * 60)
-    print(" 个人知识助手已就绪 (GLM-5.2 + LangGraph + ChromaDB)")
+    # 模型名从配置读取,换厂商后横幅不会说谎.
+    print(f" 个人知识助手已就绪 ({settings.resolve_model_name} + LangGraph + ChromaDB)")
     print(" 输入问题开始对话；输入 /exit 退出。")
     print("=" * 60)
     thread_id = "cli-session"

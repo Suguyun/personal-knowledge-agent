@@ -8,7 +8,7 @@
 测试会向 `data/kb/` 写入两篇样例 markdown 文档(若已存在则跳过,绝不触碰你的
 真实笔记),建立 KB 索引,然后跑三条固定查询并打印每个回答.
 
-除非给出 `--offline`,否则需要 ZHIPU_API_KEY.
+除非给出 `--offline`,否则需要 LLM_API_KEY(见 .env 与 graph/llm.py).
 """
 
 from __future__ import annotations
@@ -200,7 +200,7 @@ def main() -> None:
     try:
         validate_api_key(settings)
     except RuntimeError as exc:
-        print(f"\n缺少 API Key: {exc}\n请先设置 ZHIPU_API_KEY，或使用 --offline。",
+        print(f"\n缺少 API Key: {exc}\n请先在 .env 中设置 LLM_API_KEY，或使用 --offline。",
               file=sys.stderr)
         sys.exit(1)
 

@@ -1,13 +1,14 @@
 # 个人知识助手 (Personal Knowledge Agent)
 
-一个基于 **GLM-5.2 + LangGraph + ChromaDB** 的个人知识库问答 Agent。
+一个基于 **LangGraph + ChromaDB** 的个人知识库问答 Agent，LLM 走任意 OpenAI 兼容
+服务（默认配置为 DeepSeek，改 `.env` 即可切回智谱 GLM-5.2）。
 它检索你的本地 markdown 笔记/文档，组织成带引用的回答，并支持把新内容沉淀回知识库。
 
 ## 技术栈
 
 | 组件 | 选型 |
 |---|---|
-| LLM | GLM-5.2（智谱官方 `zai-sdk`, `ZhipuAiClient`） |
+| LLM | 任意 OpenAI 兼容服务（`openai` SDK；默认 DeepSeek `deepseek-flash`，可切 GLM-5.2） |
 | 编排 | LangGraph（StateGraph, 异步节点, SQLite Checkpointer） |
 | 向量库 | ChromaDB（本地持久化） |
 | Embedding | 默认本地 `BAAI/bge-small-zh-v1.5`（离线, 不耗 API 额度） |
@@ -17,10 +18,23 @@
 
 ### LLM 适配（graph/llm.py）
 
-LLM 调用走智谱官方 `zai-sdk` 的 `ZhipuAiClient`，封装为 `ZhipuLLM` 适配器
-（`ainvoke(messages) -> .content`）。GLM-5.2 默认开启思考（thinking），
-适配器使用充足 `max_tokens`（默认 8192），避免思考过程耗尽 token 预算导致
-回答为空。意图分类节点使用 thinking 关闭 + 小 `max_tokens` 的轻量调用。
+LLM 调用走 `openai` SDK 的 `AsyncOpenAI`，封装为 `OpenAICompatLLM` 适配器
+（`ainvoke(messages, tools) -> .content / .tool_calls`）。DeepSeek 与智谱 BigModel
+都提供 OpenAI 兼容端点，因此**换厂商只需改 `.env` 的 `LLM_API_KEY` / `LLM_BASE_URL` /
+`LLM_MODEL` 三项**，不必碰任何节点代码。
+
+两类模型都默认开启思考（thinking）：推理轨迹在 `reasoning_content`，最终回答在
+`content`。由此有三条实现约束：
+
+- 适配器使用充足 `max_tokens`（默认 8192），避免推理轨迹耗尽 token 预算导致回答为空。
+- **请求带 `tools=` 时，历史轮次的 `reasoning_content` 必须回传**，否则 API 会拒绝该
+  请求。适配器负责取出该字段，节点把它存进 `AIMessage.additional_kwargs`，下一轮由
+  `_to_dict` 原样带回。
+- 意图分类节点用 `thinking={"type": "disabled"}` + 小 `max_tokens` 的轻量调用 ——
+  不关思考的话，推理轨迹会吃掉那点预算，分类结果恒为空。
+
+模型 id 注意：DeepSeek 已**退役 `deepseek-chat` / `deepseek-reasoner`**，当前为
+`deepseek-flash`（DeepSeek-V4.1-Flash，1M 上下文）与 `deepseek-v4-pro`。
 
 ### Embedding 后端
 
@@ -46,7 +60,9 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 ZHIPU_API_KEY（https://open.bigmodel.cn 获取）
+# 编辑 .env，填入 LLM_API_KEY
+#   DeepSeek: https://platform.deepseek.com
+#   智谱 GLM: https://open.bigmodel.cn（同时改 LLM_BASE_URL / LLM_MODEL）
 ```
 
 ### 3. 放入知识库文档
@@ -91,7 +107,7 @@ generate_node ──质量不达标且 retry<1──→ rewrite_query_node → k
 | `list_documents()` | 列出全部文档及章节/更新时间概览 |
 | `create_note(title, content)` | 写入 `data/notes/` 并立即加入索引 |
 
-三个工具都以原生 Function Calling 格式交给模型（`ZhipuLLM` 向 API 传 `tools=`），
+三个工具都以原生 Function Calling 格式交给模型（`OpenAICompatLLM` 向 API 传 `tools=`），
 生成节点负责执行模型请求的调用、把结果回灌并继续对话，最多 `MAX_TOOL_ITERATIONS`
 轮（默认 3，达到上限会明确告知而非静默收尾）。工具执行失败会作为文本回给模型，
 由它决定下一步。`knowledge_search` 另有一条确定性路径：由 `knowledge_search`
@@ -101,12 +117,13 @@ generate_node ──质量不达标且 retry<1──→ rewrite_query_node → k
 
 - 回答严格基于检索结果，附带 `[来源: 文档名, 章节]` 标注。
 - 检索不到即如实说明"知识库中未找到"，绝不编造（零幻觉）。
-- 系统提示词不含任何 CoT / ReAct 指令 —— GLM-5.2 默认自带思考能力。
+- 系统提示词不含任何 CoT / ReAct 指令 —— 所用模型自带思考能力（GLM-5.2 默认开启，
+  DeepSeek 的 thinking 模式亦然）。
 
 ## 依赖版本注意
 
-- **`zai-sdk`**：智谱官方 SDK（`from zai import ZhipuAiClient`）。注意 PyPI 上还有一个
-  **空包 `zai`**（0.0.2，无任何代码），不要装错 —— 正确包名是 `zai-sdk`。
+- **`openai`**：LLM 与 zhipu embedding 后端共用这一个 SDK（`AsyncOpenAI` / `OpenAI`）。
+  DeepSeek 与智谱都走它的 OpenAI 兼容模式，不需要各自的官方 SDK；不再依赖 `zai-sdk`。
 - **numpy 必须 `<2`**：本 venv 的 torch 为 2.2.x，与 numpy 2.x **ABI 不兼容**
   （sentence-transformers 会报 `Numpy is not available`）。请保持 `numpy<2`。
 - **HuggingFace 国内镜像**：`config.py` 默认设置 `HF_ENDPOINT=https://hf-mirror.com`，
@@ -127,14 +144,17 @@ generate_node ──质量不达标且 retry<1──→ rewrite_query_node → k
 3. **Reranker 需要下载模型**（bge-reranker-v2-m3 约 2GB，首次调用时下载）。
    若失败/禁用会自动降级为原始向量分数，仅日志警告。
 4. **重试仅一次**：查询改写后仍无结果则直接给出"未找到"答复。
-5. **GLM 错误码处理**：余额不足(1301)/限流(1305) 在 `config` 中登记，
-   当前实现里 API 异常统一由 OpenAI SDK 的重试与节点级异常兜底；如需更细粒度
-   可按错误码在 `nodes.py` 增加专门重试逻辑。
+5. **限额/限流未做专门处理**：`config` 里登记的 1301(余额不足)/1305(限流) 是
+   **智谱特有**错误码，当前并未接入任何重试分支（换到 DeepSeek 后对应 HTTP 402/429，
+   这两个常量已无意义）。API 异常统一由节点级兜底；如需更细粒度可在 `nodes.py`
+   按状态码增加专门重试逻辑。
 6. **`build_graph` 是 async 的**：`AsyncSqliteSaver` 必须在事件循环内构造。
    在 async 上下文用 `await build_graph(...)`；脚本场景用 `build_graph_sync()`。
 7. **工具调用循环尚未经真实 API 验证**：序列化（工具 schema、`tool_calls`
    往返、畸形参数判定）与循环控制（单轮、未知工具、轮次上限、无工具降级）
-   均有桩件测试覆盖，但"GLM-5.2 真的会按要求发起工具调用"只能在真实调用中确认。
+   均有桩件测试覆盖，但"模型真的会按要求发起工具调用"只能在真实调用中确认。
+   换厂商后尤其要跑一次实网验证 —— 带 `tools=` 的请求必须回传历史轮次的
+   `reasoning_content`，这条契约的往返链路没有桩件覆盖。
 
 ## 下一步建议
 
