@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 # Chroma stores text as an official field; everything else we keep in metadata.
 _TEXT_KEY = "text"
 _SOURCE_KEY = "source_doc"
+# File location — unique across data/kb/ and data/notes/, unlike source_doc.
+_PATH_KEY = "path"
 
 
 class VectorStore:
@@ -81,7 +83,10 @@ class VectorStore:
         for c in chunk_list:
             meta = dict(c.metadata)
             meta[_TEXT_KEY] = c.page_content  # always retain retrievable text
-            meta["n_tokens"] = len(c.page_content)
+            # No size field: a character count used to be stored under
+            # "n_tokens" (never read by anything, and mislabeled). Dropped
+            # rather than renamed so the collection cannot end up carrying two
+            # different key names for the same thing.
             metadatas.append(meta)
 
         self._collection.add(
@@ -160,6 +165,43 @@ class VectorStore:
         self._collection.delete(where={})
         logger.info("Cleared collection %s.", self.settings.chroma_collection_name)
 
+    def reindex_path(self, path: str, chunks: Iterable[Document]) -> int:
+        """Embed + insert `chunks`, replacing whatever was indexed for `path`.
+
+        Keyed on the `path` metadata (where the file actually lives), **not**
+        `source_doc` (the bare file name): the same name can exist in both
+        `data/kb/` and `data/notes/`, so deleting by name would silently wipe
+        the other document's vectors.
+
+        Ordering matters. The new chunks are added first and the previous ones
+        removed only once that succeeded — a failure (embedding backend down,
+        network drop) then leaves the old content retrievable instead of
+        deleting it and writing nothing.
+
+        Args:
+            path: Absolute-or-relative path recorded in the chunk metadata.
+            chunks: Replacement chunks for that path.
+
+        Returns:
+            Number of chunks inserted.
+        """
+        previous_ids = self._ids_for_path(path)
+        added = self.add_documents(chunks)
+        if previous_ids:
+            self.delete_ids(previous_ids)
+        return added
+
+    def _ids_for_path(self, path: str) -> list[str]:
+        """Ids of every chunk currently stored for `path`."""
+        result = self._collection.get(where={_PATH_KEY: path})
+        return list(result.get("ids") or [])
+
+    def delete_ids(self, ids: Iterable[str]) -> None:
+        """Delete chunks by id (no-op for an empty list)."""
+        id_list = list(ids)
+        if id_list:
+            self._collection.delete(ids=id_list)
+
     def reset(self) -> None:
         """Drop and recreate the collection from scratch."""
         try:
@@ -173,4 +215,4 @@ class VectorStore:
         logger.info("Reset collection %s.", self.settings.chroma_collection_name)
 
 
-__all__ = ["VectorStore", "_SOURCE_KEY"]
+__all__ = ["VectorStore", "_SOURCE_KEY", "_PATH_KEY"]

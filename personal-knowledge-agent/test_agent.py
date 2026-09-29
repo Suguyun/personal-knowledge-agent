@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import shutil
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 
 from config import Settings, get_settings
-from graph.builder import build_graph
+from graph.builder import build_graph, clear_thread
 from rag.loader import load_documents
 from rag.splitter import split_documents
 from rag.vectorstore import VectorStore
@@ -95,6 +98,42 @@ class _DummyEmbedder:
         return out
 
 
+def _offline_settings(settings: Settings) -> tuple[Settings, Path]:
+    """Settings pointing at throwaway storage, plus the temp root to delete.
+
+    The offline run indexes deterministic 8-dim dummy vectors. Writing those
+    into the real collection would leave it unusable: the next real run sees a
+    non-empty collection, skips indexing, and then fails every query on a
+    dimension mismatch (512-dim local embedding vs 8-dim stored vectors) until
+    someone runs `--rebuild`. The checkpoint DB is redirected for the same
+    reason — the offline path has no business touching the production one
+    (`data/checkpoints.sqlite`).
+    """
+    tmp_root = Path(tempfile.mkdtemp(prefix="pka-offline-"))
+    offline = settings.model_copy(
+        update={
+            "chroma_db_dir": tmp_root / "chroma",
+            "chroma_collection_name": "personal_knowledge_offline",
+            "sqlite_checkpoint_path": tmp_root / "checkpoints.sqlite",
+        }
+    )
+    return offline, tmp_root
+
+
+async def _build_and_close(settings: Settings) -> None:
+    """Build the pipeline and tear it down cleanly (offline smoke test).
+
+    Uses `await build_graph(...)` + `close_graph` rather than
+    `build_graph_sync`, because the latter wraps `asyncio.run`, which closes
+    the event loop while the aiosqlite worker thread is still live — the very
+    teardown the sync helper documents as unsafe.
+    """
+    from graph.builder import close_graph
+
+    graph = await build_graph(settings=settings)
+    await close_graph(graph)
+
+
 def _index(settings: Settings, offline: bool = False) -> int:
     store = VectorStore(settings, embedder=_DummyEmbedder() if offline else None)
     docs = load_documents(settings.kb_dir)
@@ -112,6 +151,11 @@ def _index(settings: Settings, offline: bool = False) -> int:
 async def _run(settings: Settings, queries: list[str]) -> None:
     from graph.builder import close_graph
 
+    # Fresh thread per run so the three queries share context with each other
+    # but never with a previous `test_agent.py` run (the checkpointer is
+    # persistent, so a fixed thread_id would replay old answers).
+    thread_id = f"test-{uuid.uuid4().hex[:8]}"
+
     graph = await build_graph(settings=settings)
     try:
         for q in queries:
@@ -121,11 +165,13 @@ async def _run(settings: Settings, queries: list[str]) -> None:
 
             result = await graph.ainvoke(
                 {"messages": [HumanMessage(content=q)], "retry_count": 0},
-                config={"configurable": {"thread_id": "test"}},
+                config={"configurable": {"thread_id": thread_id}},
             )
             answer = result.get("final_answer") or "(无回答)"
             print(f"回答:\n{answer}")
     finally:
+        # Don't leave this run's unique thread behind in the checkpoint DB.
+        await clear_thread(graph, thread_id)
         await close_graph(graph)
 
 
@@ -140,10 +186,15 @@ def main() -> None:
     seed_kb(settings)
 
     if args.offline:
-        _index(settings, offline=True)
-        from graph.builder import build_graph_sync
-
-        build_graph_sync(settings=settings)
+        offline_settings, tmp_root = _offline_settings(settings)
+        print(f"[offline] 使用临时向量库: {offline_settings.chroma_db_dir}")
+        try:
+            _index(offline_settings, offline=True)
+            asyncio.run(_build_and_close(offline_settings))
+        finally:
+            # The smoke test is meant to be run repeatedly; without this every
+            # run would leave a pka-offline-* directory behind.
+            shutil.rmtree(tmp_root, ignore_errors=True)
         print("\n[offline] 流水线构建成功（未调用任何 API/LLM）。")
         return
 

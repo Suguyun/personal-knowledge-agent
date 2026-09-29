@@ -219,4 +219,31 @@ async def close_graph(graph) -> None:
             pass  # already closed or loop shutting down
 
 
-__all__ = ["build_graph", "build_graph_sync", "run_agent", "close_graph"]
+async def clear_thread(graph, thread_id: str) -> None:
+    """Delete every checkpoint stored for `thread_id` (best-effort).
+
+    One-shot runs mint a unique thread id so they cannot inherit history from
+    an earlier run — but that id is never reused, so without this the
+    checkpoint DB would grow by one abandoned thread per invocation (the DB is
+    never pruned automatically). Clearing it keeps the isolation without the
+    leak. Idempotent: a missing thread deletes nothing.
+    """
+    saver = getattr(graph, "checkpointer", None)
+    deleter = getattr(saver, "adelete_thread", None)
+    if deleter is None:
+        logger.debug("Checkpointer has no adelete_thread; skipping cleanup.")
+        return
+    try:
+        await deleter(thread_id)
+    except Exception:
+        logger.warning("Could not clear checkpoints for thread %s",
+                       thread_id, exc_info=True)
+
+
+__all__ = [
+    "build_graph",
+    "build_graph_sync",
+    "run_agent",
+    "close_graph",
+    "clear_thread",
+]

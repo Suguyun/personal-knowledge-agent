@@ -34,8 +34,10 @@ def split_documents(
     Each output chunk carries metadata:
 
         - `source_doc`    : original file name (inherited)
-        - `section_header`: markdown heading the chunk lives under
-        - `chunk_index`   : 0-based order within the source document
+        - `section_header`: markdown heading path the chunk lives under
+        - `chunk_index`   : 0-based index into the returned chunk list. It keeps
+                            counting across documents, so it is NOT an index
+                            within `source_doc`.
         - `created_at`    : inherited from the source document
 
     Args:
@@ -47,7 +49,8 @@ def split_documents(
         A flat list of `Document` chunks.
     """
     # MarkdownHeaderTextSplitter stores the matched header text under the
-    # label keys below (e.g. piece.metadata["H1"] == "# 工具选型").
+    # label keys below, with the "#" markers stripped
+    # (e.g. piece.metadata["H1"] == "工具选型").
     header_labels = ("H1", "H2", "H3")
     header_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=[("#", "H1"), ("##", "H2"), ("###", "H3")],
@@ -111,9 +114,11 @@ def split_documents(
 def _extract_section(metadata: dict[str, Any], labels: tuple[str, ...]) -> str:
     """Reconstruct a "H1 / H2" citation path from the header splitter labels.
 
-    `MarkdownHeaderTextSplitter` sets e.g. metadata["H1"] = "# AI 编码工具",
-    metadata["H2"] = "## 使用技巧". We join the present levels with " / " so
-    the section_header reads naturally: "# AI 编码工具 / ## 使用技巧".
+    `MarkdownHeaderTextSplitter` strips the "#" markers, so metadata["H1"] is
+    e.g. "AI 编码工具" and metadata["H2"] is "使用技巧" (verified against the
+    sample KB: a chunk under `# 2026 年度 OKR` / `## 年度目标` yields
+    section_header "2026 年度 OKR / 年度目标"). We join the present levels
+    with " / " so the section_header reads naturally.
     """
     parts = [metadata.get(label, "").strip() for label in labels]
     parts = [p for p in parts if p]

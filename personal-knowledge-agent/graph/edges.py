@@ -19,6 +19,19 @@ from graph.state import KnowledgeState
 BRANCH_KNOWLEDGE = "knowledge"
 BRANCH_DIRECT = "direct"
 
+# `intent_router` parks its decision on `current_query` as
+# f"{INTENT_PREFIX}<branch>". The prefix is defined here and used by both the
+# writer (graph/nodes.py) and the readers (this module), so the marker format
+# is genuinely declared in one place — changing it cannot desynchronise them.
+INTENT_PREFIX = "INTENT:"
+
+# The exact marker values `intent_router` can write. Matching these full
+# strings (instead of testing for the prefix) keeps a rewritten query that
+# happens to start with the prefix from being mistaken for a marker.
+INTENT_MARKERS = frozenset(
+    f"{INTENT_PREFIX}{branch}" for branch in (BRANCH_KNOWLEDGE, BRANCH_DIRECT)
+)
+
 
 def route_intent(state: KnowledgeState) -> str:
     """Decide which branch the user query takes.
@@ -29,8 +42,10 @@ def route_intent(state: KnowledgeState) -> str:
     branch (retrieval is the safe default).
     """
     marker = state.get("current_query", "")
-    if marker.startswith("INTENT:"):
-        intent = marker.split(":", 1)[1].strip().lower()
+    if marker.startswith(INTENT_PREFIX):
+        # Slice by prefix length rather than splitting on ":": the separator is
+        # whatever INTENT_PREFIX ends with, not a hardcoded colon.
+        intent = marker[len(INTENT_PREFIX):].strip().lower()
         if intent == BRANCH_DIRECT:
             return BRANCH_DIRECT
     return BRANCH_KNOWLEDGE
@@ -76,6 +91,8 @@ def route_after_rewrite(state: KnowledgeState) -> str:
 __all__ = [
     "BRANCH_KNOWLEDGE",
     "BRANCH_DIRECT",
+    "INTENT_PREFIX",
+    "INTENT_MARKERS",
     "route_intent",
     "route_after_generate",
     "route_after_rewrite",
