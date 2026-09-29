@@ -1,14 +1,14 @@
-"""Graph assembly: StateGraph + nodes + edges + SQLite checkpointer.
+"""Graph 组装:StateGraph + nodes + edges + SQLite checkpointer.
 
-Flow (per spec):
+流程(按规格):
 
     START → intent_router → (knowledge_search_node | direct_response_node)
                           → rerank_node → generate_node → END
-        generate_node ──quality ok──→ END
-        generate_node ──bad + retry budget──→ rewrite_query_node → knowledge_search_node
+        generate_node ──质量达标──→ END
+        generate_node ──不达标 + 还有 retry 预算──→ rewrite_query_node → knowledge_search_node
 
-The checkpointer persists thread state to SQLite (langgraph-checkpoint-sqlite),
-keyed by `thread_id`.
+checkpointer 把 thread state 持久化到 SQLite(langgraph-checkpoint-sqlite),
+以 `thread_id` 为键.
 """
 
 from __future__ import annotations
@@ -46,39 +46,37 @@ async def build_graph(
     client: Any | None = None,
     stream_tokens=None,
 ):
-    """Assemble and compile the agent graph.
+    """组装并编译 agent graph.
 
-    Async because `AsyncSqliteSaver` must be constructed inside a running
-    event loop. Await it from any async context, or use `build_graph_sync`
-    from a plain script.
+    之所以是 async,是因为 `AsyncSqliteSaver` 必须在运行中的事件循环里构造.
+    可在任意 async 上下文中 await 它,或在普通脚本里用 `build_graph_sync`.
 
     Args:
-        settings: App settings (defaults to global).
-        retriever: Pre-built Retriever (built from store if omitted).
-        store: Pre-built VectorStore (built from defaults if omitted).
-        llm: ZhipuLLM adapter over zai-sdk (built if omitted).
-        client: Kept for backward compatibility; no longer used internally.
-        stream_tokens: Optional `callable(str)` called with each streamed token
-                       during generation (used by the CLI).
+        settings: 应用配置(默认为全局).
+        retriever: 预先构建的 Retriever(省略时基于 store 构建).
+        store: 预先构建的 VectorStore(省略时用默认值构建).
+        llm: 基于 zai-sdk 的 ZhipuLLM 适配器(省略时构建).
+        client: 为向后兼容保留;内部已不再使用.
+        stream_tokens: 可选 `callable(str)`,在生成过程中每收到一个流式
+                       token 即调用(供 CLI 使用).
 
     Returns:
-        A compiled `CompiledStateGraph` ready for `ainvoke`/`astream` with
-        `config={"configurable": {"thread_id": ...}}`.
+        一个已编译的 `CompiledStateGraph`,可直接配合
+        `config={"configurable": {"thread_id": ...}}` 用于 `ainvoke`/`astream`.
     """
     settings = settings or get_settings()
     settings.ensure_dirs()
 
-    # --- Dependency wiring ------------------------------------------------
+    # --- 依赖装配 ----------------------------------------------------------
     store = store or VectorStore(settings)
     retriever = retriever or Retriever(settings, store=store)
 
     tools = get_tools(settings=settings, retriever=retriever, store=store)
 
-    # The official zai-sdk ZhipuAiClient is used for every LLM call. Thinking
-    # stays enabled by default (GLM-5.2's own strength); `stream_tokens` is
-    # forwarded so the interactive CLI can stream tokens when it wires a
-    # callback. max_tokens is generous so the reasoning trace never eats the
-    # final answer's budget.
+    # 每次 LLM 调用都用官方 zai-sdk 的 ZhipuAiClient.Thinking 默认保持开启
+    # (这是 GLM-5.2 本身的强项);转发 `stream_tokens`,以便交互式 CLI 接上
+    # 回调后能流式输出 token.max_tokens 给得宽裕,避免推理轨迹吃掉最终回答
+    # 的预算.
     llm = llm or (
         ZhipuLLM(
             api_key=settings.zhipu_api_key,
@@ -95,11 +93,11 @@ async def build_graph(
         settings=settings,
         llm=llm,
         tools=tools,
-        client=None,  # legacy slot, unused with ZhipuLLM
+        client=None,  # 遗留占位,ZhipuLLM 下未使用
         stream_tokens=stream_tokens,
     )
 
-    # --- Graph wiring ------------------------------------------------------
+    # --- Graph 接线 --------------------------------------------------------
     graph = StateGraph(KnowledgeState)
 
     graph.add_node("intent_router", nodes.intent_router)
@@ -139,20 +137,20 @@ async def build_graph(
     )
 
     # --- Checkpointer -------------------------------------------------------
-    # All graph nodes are async, so the checkpointer must be the async sqlite
-    # saver (`SqliteSaver` raises NotImplementedError under ainvoke).
-    # `AsyncSqliteSaver.from_conn_string` is an async context manager that
-    # closes the connection on exit — which would break checkpointing for the
-    # life of the graph. We open the aiosqlite connection ourselves and keep
-    # it open so the compiled graph can checkpoint across every ainvoke.
+    # 所有 graph node 都是 async,因此 checkpointer 必须是 async 版 sqlite
+    # saver(`SqliteSaver` 在 ainvoke 下会抛 NotImplementedError).
+    # `AsyncSqliteSaver.from_conn_string` 是个 async 上下文管理器,退出时会关
+    # 闭连接 —— 那会破坏整个 graph 生命周期的 checkpoint.我们自己打开
+    # aiosqlite 连接并保持打开,这样编译后的 graph 能在每次 ainvoke 之间做
+    # checkpoint.
     import aiosqlite
 
     conn = aiosqlite.connect(str(settings.sqlite_checkpoint_path))
     saver = AsyncSqliteSaver(conn)
     compiled = graph.compile(checkpointer=saver)
 
-    # Keep the connection reachable so short-lived scripts can close it
-    # gracefully (see `close_graph`) instead of leaking a thread on exit.
+    # 让连接保持可达,好让短生命周期脚本能优雅关闭它(见 `close_graph`),
+    # 而不是在退出时泄漏一个线程.
     setattr(compiled, "_checkpointer_conn", conn)
     logger.info("Compiled knowledge agent graph (checkpointer=%s).",
                 settings.sqlite_checkpoint_path)
@@ -166,25 +164,25 @@ async def run_agent(
     graph=None,
     **kwargs,
 ) -> str:
-    """Convenience async entry point: ask one query, return the final answer.
+    """便捷的 async 入口:问一个查询,返回最终回答.
 
     Args:
-        query: The user message.
-        thread_id: Checkpoint thread id (conversation continuity).
-        settings: App settings.
-        graph: Pre-built compiled graph (built fresh if omitted).
-        **kwargs: Forwarded to build_graph when graph is omitted.
+        query: 用户消息.
+        thread_id: checkpoint thread id(保证对话连续性).
+        settings: 应用配置.
+        graph: 预先构建好的已编译 graph(省略时新构建).
+        **kwargs: graph 省略时转发给 build_graph.
 
     Returns:
-        The agent's final answer text.
+        agent 的最终回答文本.
     """
     settings = settings or get_settings()
     graph = graph or await build_graph(settings=settings, **kwargs)
 
     from langchain_core.messages import HumanMessage
 
-    # The add_messages reducer appends to existing checkpointed history for
-    # this thread, giving multi-turn continuity.
+    # add_messages reducer 会把消息追加到该 thread 已有的 checkpoint 历史之后,
+    # 从而实现多轮连续性.
     state: KnowledgeState = {"messages": [HumanMessage(content=query)], "retry_count": 0}
     result = await graph.ainvoke(
         state,
@@ -195,38 +193,36 @@ async def run_agent(
 
 
 def build_graph_sync(*args, **kwargs):
-    """Sync convenience wrapper for `build_graph` (runs its own event loop).
+    """`build_graph` 的同步便捷包装(自行运行事件循环).
 
-    Note: the returned compiled graph's checkpointer is bound to the loop that
-    was used to build it, so in-process reuse from a different loop is unsafe.
-    Prefer `await build_graph(...)` inside your app's own event loop.
+    注意:返回的已编译 graph 的 checkpointer 绑定在构建它的那个事件循环上,
+    因此从另一个循环在进程内复用它是不安全的.推荐在你自己应用的事件循环里
+    `await build_graph(...)`.
     """
     return asyncio.run(build_graph(*args, **kwargs))
 
 
 async def close_graph(graph) -> None:
-    """Gracefully close a graph's checkpoint connection (idempotent).
+    """优雅关闭 graph 的 checkpoint 连接(幂等).
 
-    Call this before your event loop shuts down when using `asyncio.run`
-    style short-lived scripts, so the aiosqlite worker thread doesn't try to
-    write to a closed loop.
+    在使用 `asyncio.run` 风格的短生命周期脚本时,请在事件循环关闭前调用它,
+    以免 aiosqlite 工作线程试图往已关闭的循环里写.
     """
     conn = getattr(graph, "_checkpointer_conn", None)
     if conn is not None:
         try:
             await conn.close()
         except Exception:
-            pass  # already closed or loop shutting down
+            pass  # 已关闭,或事件循环正在退出
 
 
 async def clear_thread(graph, thread_id: str) -> None:
-    """Delete every checkpoint stored for `thread_id` (best-effort).
+    """删除为 `thread_id` 存储的所有 checkpoint(尽力而为).
 
-    One-shot runs mint a unique thread id so they cannot inherit history from
-    an earlier run — but that id is never reused, so without this the
-    checkpoint DB would grow by one abandoned thread per invocation (the DB is
-    never pruned automatically). Clearing it keeps the isolation without the
-    leak. Idempotent: a missing thread deletes nothing.
+    一次性运行会生成唯一 thread id,因此不会继承早先运行的历史 —— 但那个 id
+    永不复用,所以若不清理,checkpoint DB 会随每次调用增长一个被遗弃的
+    thread(该 DB 从不自动裁剪).清掉它既能保持隔离又不会泄漏.幂等:
+    thread 不存在时什么也不删.
     """
     saver = getattr(graph, "checkpointer", None)
     deleter = getattr(saver, "adelete_thread", None)

@@ -1,13 +1,12 @@
-"""Markdown-aware document splitting.
+"""感知 Markdown 的文档切分.
 
-Strategy (per spec): try `MarkdownHeaderTextSplitter` first — it preserves the
-section header so each chunk keeps a `section_header` metadata field that the
-LLM can cite. Any content left over after header splitting (plain prose before
-the first header, list items, etc.) is then chunked with a
-`RecursiveCharacterTextSplitter` fallback so nothing is dropped.
+策略(按规格):先尝试 `MarkdownHeaderTextSplitter` —— 它保留小节标题,
+使每个 chunk 都带有一个可供 LLM 引用的 `section_header` metadata 字段.
+标题切分后剩余的内容(首个标题前的普通文本,列表项等)再用
+`RecursiveCharacterTextSplitter` 兜底切分,确保不丢内容.
 
-All chunks are normalized afterwards with a final character-level split so no
-chunk ever exceeds `chunk_size` characters.
+最后所有 chunk 都会经过一次字符级切分做归一化,保证没有 chunk 超过
+`chunk_size` 个字符.
 """
 
 from __future__ import annotations
@@ -29,28 +28,27 @@ def split_documents(
     chunk_size: int = 512,
     chunk_overlap: int = 64,
 ) -> list[Document]:
-    """Split a list of Documents into retrieval chunks with rich metadata.
+    """把一组 Documents 切分成带丰富 metadata 的检索 chunk.
 
-    Each output chunk carries metadata:
+    每个输出 chunk 携带的 metadata:
 
-        - `source_doc`    : original file name (inherited)
-        - `section_header`: markdown heading path the chunk lives under
-        - `chunk_index`   : 0-based index into the returned chunk list. It keeps
-                            counting across documents, so it is NOT an index
-                            within `source_doc`.
-        - `created_at`    : inherited from the source document
+        - `source_doc`    : 原始文件名(继承而来)
+        - `section_header`: chunk 所属的 markdown 标题路径
+        - `chunk_index`   : 在返回的 chunk 列表中的 0 起始下标.它跨文档连续
+                            计数,因此并不是 `source_doc` 内的下标.
+        - `created_at`    : 继承自源文档
 
     Args:
-        documents: Raw documents from `load_documents`.
-        chunk_size: Target max characters per chunk.
-        chunk_overlap: Overlap between consecutive fallback chunks.
+        documents: 来自 `load_documents` 的原始文档.
+        chunk_size: 每个 chunk 的目标最大字符数.
+        chunk_overlap: 相邻兜底 chunk 之间的 overlap.
 
     Returns:
-        A flat list of `Document` chunks.
+        扁平的 `Document` chunk 列表.
     """
-    # MarkdownHeaderTextSplitter stores the matched header text under the
-    # label keys below, with the "#" markers stripped
-    # (e.g. piece.metadata["H1"] == "工具选型").
+    # MarkdownHeaderTextSplitter 会把匹配到的标题文本存放在下面这些
+    # label 键下,并去掉 "#" 标记
+    # (例如 piece.metadata["H1"] == "工具选型").
     header_labels = ("H1", "H2", "H3")
     header_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=[("#", "H1"), ("##", "H2"), ("###", "H3")],
@@ -61,8 +59,8 @@ def split_documents(
         chunk_overlap=chunk_overlap,
         separators=["\n\n", "\n", "。", "；", " ", ""],
     )
-    # Final safety net: never exceed chunk_size characters, even after header
-    # splitting produced an oversized section body.
+    # 最后的安全网:即使标题切分产生了过大的小节正文,
+    # 也绝不超出 chunk_size 个字符.
     hard_cap = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -74,9 +72,9 @@ def split_documents(
         source_meta = {k: v for k, v in doc.metadata.items() if k not in header_labels}
         header_chunks = header_splitter.split_text(doc.page_content)
 
-        # The header splitter only returns documents that fall under a header.
-        # If a file has no headers at all we get an empty list — that is the
-        # exact case the fallback splitter covers.
+        # 标题 splitter 只会返回落在某个标题下的文档.
+        # 如果文件完全没有标题,我们会得到空列表 —— 这正是
+        # 兜底 splitter 覆盖的场景.
         if not header_chunks:
             logger.debug("No headers in %s, using recursive splitter.",
                          source_meta.get("source_doc", "?"))
@@ -85,11 +83,11 @@ def split_documents(
             ]
 
         for piece in header_chunks:
-            # Reconstruct "H1 / H2 / H3" from the label keys the header
-            # splitter populated, e.g. "# AI 编码工具 / ## 使用技巧".
+            # 根据标题 splitter 填充的 label 键重建 "H1 / H2 / H3",
+            # 例如 "# AI 编码工具 / ## 使用技巧".
             section = _extract_section(piece.metadata, header_labels)
-            # Re-chunk any body that still exceeds the size cap, preserving the
-            # section header on each fragment so citation stays possible.
+            # 对仍然超出大小上限的正文再次切分,并在每个片段上保留
+            # 小节标题,以便仍可引用.
             if len(piece.page_content) > chunk_size:
                 fragments = char_splitter.split_text(piece.page_content)
             else:
@@ -112,13 +110,13 @@ def split_documents(
 
 
 def _extract_section(metadata: dict[str, Any], labels: tuple[str, ...]) -> str:
-    """Reconstruct a "H1 / H2" citation path from the header splitter labels.
+    """根据标题 splitter 的 label 重建 "H1 / H2" 引用路径.
 
-    `MarkdownHeaderTextSplitter` strips the "#" markers, so metadata["H1"] is
-    e.g. "AI 编码工具" and metadata["H2"] is "使用技巧" (verified against the
-    sample KB: a chunk under `# 2026 年度 OKR` / `## 年度目标` yields
-    section_header "2026 年度 OKR / 年度目标"). We join the present levels
-    with " / " so the section_header reads naturally.
+    `MarkdownHeaderTextSplitter` 会去掉 "#" 标记,因此 metadata["H1"] 形如
+    "AI 编码工具",metadata["H2"] 形如 "使用技巧"(已对照示例 KB 验证:
+    位于 `# 2026 年度 OKR` / `## 年度目标` 下的 chunk 得到的
+    section_header 为 "2026 年度 OKR / 年度目标").我们用 " / " 拼接存在
+    的各层级,使 section_header 读起来自然.
     """
     parts = [metadata.get(label, "").strip() for label in labels]
     parts = [p for p in parts if p]
@@ -127,14 +125,14 @@ def _extract_section(metadata: dict[str, Any], labels: tuple[str, ...]) -> str:
 
 def _build_chunk(text: str, source_meta: dict[str, Any],
                  section: str, index: int) -> Document:
-    """Assemble a single chunk Document with the full metadata contract."""
+    """按完整的 metadata 契约组装单个 chunk Document."""
     metadata: dict[str, Any] = {
         "source_doc": source_meta.get("source_doc", "unknown"),
         "section_header": section,
         "chunk_index": index,
         "created_at": source_meta.get("created_at", ""),
     }
-    # Preserve the original absolute path (if present) for create_note audits.
+    # 保留原始绝对路径(若存在),供 create_note 审计使用.
     if source_meta.get("path"):
         metadata["path"] = source_meta["path"]
     return Document(page_content=text, metadata=metadata)

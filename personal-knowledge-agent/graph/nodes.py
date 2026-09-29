@@ -1,19 +1,19 @@
 """Graph nodes.
 
-Node responsibilities:
+各 node 职责:
 
-    intent_router       — cheap, thinking-disabled classifier: knowledge vs direct
-    knowledge_search    — run the knowledge_search tool (retrieve + store chunks)
-    direct_response     — chat answer without retrieval
-    rerank_node         — rerank the retrieved candidates (via the tool's own
-                          retriever; kept as an explicit graph step so the
-                          state's `retrieved_docs` always reflects reranked
-                          order and the LLM context can be pruned)
-    generate_node       — synthesize the final answer with citations
-    rewrite_query_node  — rewrite a failed query once, then re-retrieve
+    intent_router       — 廉价,关闭 thinking 的分类器:knowledge 还是 direct
+    knowledge_search    — 执行 knowledge_search 工具(检索 + 存储文本块)
+    direct_response     — 不经检索的聊天回答
+    rerank_node         — 对检索到的候选做 rerank(借工具自带的 retriever
+                          完成;保留为显式的 graph 步骤,好让 state 的
+                          `retrieved_docs` 始终反映 rerank 后的顺序,
+                          也便于裁剪 LLM 上下文)
+    generate_node       — 带引用地合成最终回答
+    rewrite_query_node  — 把失败的查询改写一次,然后重新检索
 
-All nodes are async (spec: "all nodes must be async-compatible") and read
-dependencies from a module-level `DEPENDENCIES` holder set by `build_graph`.
+所有 node 都是 async(规格:"all nodes must be async-compatible"),并从由
+`build_graph` 设置的模块级 `DEPENDENCIES` 容器读取依赖.
 """
 
 from __future__ import annotations
@@ -37,11 +37,11 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Dependency injection (filled by build_graph)
+# 依赖注入(由 build_graph 填充)
 # ---------------------------------------------------------------------------
 class _Deps:
     settings: Settings | None = None
-    llm: Any = None                # ZhipuLLM (glm-5.2)
+    llm: Any = None                # ZhipuLLM(glm-5.2)
     tools: list[BaseTool] = []
     tool_by_name: dict[str, BaseTool] = {}
     stream_tokens: Callable[[str], None] | None = None
@@ -51,8 +51,8 @@ DEPS = _Deps()
 
 
 def _set_deps(settings, llm, tools, client, stream_tokens) -> None:
-    # `client` is kept for backward-compat with callers but no longer used:
-    # all LLM calls go through the ZhipuLLM adapter (`llm`).
+    # `client` 为兼容调用方保留,但已不再使用:
+    # 所有 LLM 调用都走 ZhipuLLM 适配器(`llm`).
     DEPS.settings = settings
     DEPS.llm = llm
     DEPS.tools = tools
@@ -61,13 +61,13 @@ def _set_deps(settings, llm, tools, client, stream_tokens) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Node implementations
+# Node 实现
 # ---------------------------------------------------------------------------
 async def intent_router(state: KnowledgeState) -> dict:
-    """Classify the latest user message as knowledge or direct.
+    """把最新的用户消息分类为 knowledge 或 direct.
 
-    Uses a thinking-disabled GLM call (cheap) and stores the decision on
-    `current_query` as `INTENT:<branch>`; `route_intent` maps it back.
+    使用关闭 thinking 的 GLM 调用(廉价),并把决策以 `INTENT:<branch>`
+    存到 `current_query`;`route_intent` 再映射回来.
     """
     query = _latest_user_text(state)
     if not query:
@@ -83,10 +83,10 @@ async def intent_router(state: KnowledgeState) -> dict:
 
 
 async def knowledge_search(state: KnowledgeState) -> dict:
-    """Execute the knowledge_search tool and store its hits in state.
+    """执行 knowledge_search 工具,并把命中结果存入 state.
 
-    The tool call + result are appended to `messages` (as AIMessage/ToolMessage)
-    so the generation node sees the standard tool-call transcript.
+    工具调用 + 结果会(以 AIMessage/ToolMessage 形式)追加到 `messages`,
+    好让 generate node 看到标准的 tool-call 记录.
     """
     query = _active_query(state)
     tool = DEPS.tool_by_name.get("knowledge_search")
@@ -119,10 +119,10 @@ async def knowledge_search(state: KnowledgeState) -> dict:
 
 
 async def direct_response(state: KnowledgeState) -> dict:
-    """Chat branch: answer directly, without retrieval, but with tools.
+    """Chat 分支:不检索直接回答,但要带 tools.
 
-    Tools matter on this branch too: "帮我记一下…" is chat-shaped, not
-    knowledge-shaped, so `create_note` has to be reachable here as well.
+    这条分支上 tools 同样重要:"帮我记一下…" 是聊天式的,不是知识式的,
+    所以 `create_note` 在这里也必须可达.
     """
     query = _latest_user_text(state)
     messages = _trim_history(state) + [HumanMessage(content=query)]
@@ -138,18 +138,18 @@ async def direct_response(state: KnowledgeState) -> dict:
 
 
 async def rerank_node(state: KnowledgeState) -> dict:
-    """Re-order retrieved_docs (reranker runs inside the retriever/tool).
+    """对 retrieved_docs 重新排序(reranker 在 retriever/tool 内部运行).
 
-    Kept as an explicit node so the graph's flow matches the architecture
-    diagram (… → rerank_node → generate_node → …) and so we can prune the
-    tool message that grows too large before generation.
+    保留为显式 node,一是让 graph 的流程与架构图一致
+    (… → rerank_node → generate_node → …),二是便于在生成前裁掉体积过大的
+    工具消息.
     """
     hits = state.get("retrieved_docs") or []
     return {"retrieved_docs": hits}
 
 
 async def generate_node(state: KnowledgeState) -> dict:
-    """Synthesize the final, cited answer from the retrieved chunks."""
+    """基于检索到的文本块合成带引用的最终回答."""
     hits = state.get("retrieved_docs") or []
     query = _active_query(state)
 
@@ -169,18 +169,18 @@ async def generate_node(state: KnowledgeState) -> dict:
 
 
 async def rewrite_query_node(state: KnowledgeState) -> dict:
-    """Rewrite the failed query (once) to improve retrieval recall."""
+    """把失败的查询改写(一次),以提高检索召回."""
     original = _latest_user_text(state)
     retry_count = int(state.get("retry_count", 0)) + 1
 
     rewritten = await _rewrite(original, state)
-    # Keep the state's query as the *rewritten* query for the retrieval node,
-    # but preserve the original user message in `messages` for context.
+    # 让 state 的 query 保持为 *改写后* 的查询供检索 node 使用,
+    # 同时在 `messages` 里保留原始用户消息作为上下文.
     return {"current_query": rewritten, "retry_count": retry_count}
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 辅助函数
 # ---------------------------------------------------------------------------
 def _latest_user_text(state: KnowledgeState) -> str:
     for msg in reversed(state.get("messages", [])):
@@ -190,19 +190,17 @@ def _latest_user_text(state: KnowledgeState) -> str:
 
 
 def _active_query(state: KnowledgeState) -> str:
-    """The query that should drive this turn's retrieval *and* generation.
+    """驱动本轮检索 *与* 生成的查询.
 
-    `current_query` holds the real query once the turn is under way, but
-    `intent_router` first parks an `INTENT:<branch>` marker there — so only a
-    non-marker value counts as a query. This is what makes the retry loop
-    work: `rewrite_query_node` writes the rewritten query to `current_query`,
-    and retrieval has to pick that up instead of re-reading the original user
-    message (which would make the second retrieval identical to the first).
+    一轮开始后 `current_query` 保存的是真实查询,但 `intent_router` 会先往
+    那里放一个 `INTENT:<branch>` 标记 —— 因此只有非标记的值才算查询.这正是
+    retry 循环得以运转的原因:`rewrite_query_node` 把改写后的查询写进
+    `current_query`,检索必须取用它,而不是重读原始用户消息(否则第二次检索
+    会与第一次完全相同).
 
-    Compared against the exact marker set, not a prefix test: a rewritten
-    query could itself start with `INTENT:` (the user may well be asking about
-    intent routing), and treating that as a marker would silently fall back to
-    the original query — reintroducing the very bug this guard exists for.
+    这里比较的是确切的标记集合,而非前缀测试:被改写的查询本身就可能以
+    `INTENT:` 开头(用户完全可能正在问 intent 路由相关的事),把它当作标记
+    会静默退回原始查询 —— 重新引入这个 guard 本就是为了防住的 bug.
     """
     current = (state.get("current_query") or "").strip()
     if current and current not in INTENT_MARKERS:
@@ -211,17 +209,16 @@ def _active_query(state: KnowledgeState) -> str:
 
 
 def _trim_history(state: KnowledgeState, settings: Settings | None = None) -> list:
-    """Keep the last N human/ai turns (budgeted) for context."""
+    """保留最近 N 轮 human/ai 对话(受预算限制)作为上下文."""
     settings = settings or get_settings()
     budget = settings.max_history_messages
     messages = state.get("messages", [])
-    # Exclude ToolMessages (transient per-turn) and the content-less AIMessage
-    # that `knowledge_search` appends to carry its tool_calls: `ZhipuLLM` drops
-    # tool_calls when converting to the SDK payload, so forwarding it would put
-    # an empty assistant turn in front of the model. Neither is conversation.
-    # The `isinstance(m.content, str)` guard matters: langchain allows
-    # AIMessage(content=[{...}]) for tool/multimodal turns, and a list has no
-    # .strip() — such a message must be kept, not crash the turn.
+    # 排除 ToolMessage(每轮临时的)以及 `knowledge_search` 为携带 tool_calls
+    # 而追加的无内容 AIMessage:`ZhipuLLM` 在转成 SDK 载荷时会丢掉
+    # tool_calls,转发它只会把一个空的 assistant 轮次摆到模型面前.两者
+    # 都不算对话.`isinstance(m.content, str)` 这个 guard 很重要:langchain
+    # 允许用 AIMessage(content=[{...}]) 表示工具/多模态轮次,而 list 没有
+    # .strip() —— 这类消息必须保留,不能让它把本轮搞崩.
     conversational = [
         m
         for m in messages
@@ -232,11 +229,10 @@ def _trim_history(state: KnowledgeState, settings: Settings | None = None) -> li
             and not m.content.strip()
         )
     ]
-    # The graph appends the current turn's HumanMessage to `messages` before a
-    # node runs, and every caller re-adds the question itself (raw in
-    # direct_response, framed as "用户问题: …" in generate_node). Leaving it in
-    # would send the question twice in two framings and burn one of the
-    # `max_history_messages` slots on it.
+    # graph 会在 node 运行前把本轮 HumanMessage 追加到 `messages`,而每个
+    # 调用方又会自己重新加上问题(direct_response 里是原文,generate_node
+    # 里包装成 "用户问题: …").把它留着会把同一个问题以两种措辞发送两次,
+    # 还白占一个 `max_history_messages` 槽位.
     while conversational and isinstance(conversational[-1], HumanMessage):
         conversational.pop()
     return conversational[-budget:]
@@ -253,13 +249,13 @@ def _as_text(response: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Native function calling (tool loop)
+# 原生 Function Calling(工具循环)
 # ---------------------------------------------------------------------------
 def _llm_accepts_tools(llm: Any) -> bool:
-    """Whether `llm.ainvoke` takes a `tools=` keyword.
+    """`llm.ainvoke` 是否接受 `tools=` 关键字.
 
-    Checked up front rather than by catching TypeError, so an unrelated
-    TypeError raised *inside* a call is never mistaken for "no tool support".
+    提前检查,而不是靠捕获 TypeError,这样调用 *内部* 抛出的无关 TypeError
+    就不会被误判成 "不支持 tools".
     """
     try:
         return "tools" in inspect.signature(llm.ainvoke).parameters
@@ -268,13 +264,13 @@ def _llm_accepts_tools(llm: Any) -> bool:
 
 
 def _response_tool_calls(response: Any) -> list[dict[str, Any]]:
-    """Tool calls requested by the model, normalized by the LLM adapter."""
+    """模型请求的 tool calls,已由 LLM 适配器归一化."""
     calls = getattr(response, "tool_calls", None) or []
     return [c for c in calls if isinstance(c, dict)]
 
 
 def _ai_message_with_calls(response: Any, calls: list[dict[str, Any]]) -> AIMessage:
-    """Rebuild the assistant turn that requested tools (for the transcript)."""
+    """重建请求过工具的 assistant 轮次(用于记录)."""
     return AIMessage(
         content=_as_text(response),
         tool_calls=[
@@ -289,10 +285,10 @@ def _ai_message_with_calls(response: Any, calls: list[dict[str, Any]]) -> AIMess
 
 
 async def _execute_tool_call(call: dict[str, Any]) -> str:
-    """Run one model-requested tool call and return its result as text.
+    """执行一个模型请求的 tool call,并把结果作为文本返回.
 
-    Per spec, tool failures come back to the model as structured text so it can
-    decide what to do next, instead of aborting the run.
+    按规格,工具失败会以结构化文本回灌给模型,让它自行决定下一步,
+    而不是中止整次运行.
     """
     name = (call.get("name") or "").strip()
     if call.get("parse_error"):
@@ -312,18 +308,17 @@ async def _execute_tool_call(call: dict[str, Any]) -> str:
 
 
 async def _tool_enabled_completion(conversation: list) -> tuple[str, list]:
-    """Call the model, running whatever tools it asks for, until it answers.
+    """调用模型,执行它请求的任意工具,直到它给出回答.
 
-    When the model requests no tool — the case for every query that doesn't
-    need one — this is a single call with the same arguments as the tool-less
-    implementation, so existing behaviour is unchanged.
+    当模型不请求工具时 —— 每个不需要工具的查询都是如此 —— 这就是一次与
+    无工具实现参数完全相同的调用,因此既有行为不变.
 
     Args:
-        conversation: system + history + current-turn messages.
+        conversation: system + 历史 + 本轮消息.
 
     Returns:
-        `(final_text, transcript)`, where transcript holds the extra
-        AIMessage/ToolMessage pairs (chronological) to append to the state.
+        `(final_text, transcript)`,其中 transcript 保存要追加到 state 的
+        额外 AIMessage/ToolMessage 对(按时间顺序).
     """
     settings = DEPS.settings or get_settings()
     budget = max(1, int(settings.max_tool_iterations))
@@ -338,8 +333,8 @@ async def _tool_enabled_completion(conversation: list) -> tuple[str, list]:
             try:
                 response = await DEPS.llm.ainvoke(convo, tools=tools)
             except Exception:
-                # If the API rejects our tools payload, keep the agent usable by
-                # falling back to the plain call rather than failing every query.
+                # 如果 API 拒绝我们的 tools 载荷,就降级为普通调用,
+                # 保证 agent 仍可用,而不是让每个查询都失败.
                 logger.warning("Tool-enabled call failed; retrying without tools.",
                                exc_info=True)
                 use_tools = False
@@ -369,7 +364,7 @@ async def _tool_enabled_completion(conversation: list) -> tuple[str, list]:
 
 
 def _parse_hits(raw: Any) -> list[dict[str, Any]]:
-    """Parse the tool's JSON string result back into a hit list."""
+    """把工具的 JSON 字符串结果解析回命中列表."""
     import json
 
     if isinstance(raw, dict):
@@ -384,7 +379,7 @@ def _parse_hits(raw: Any) -> list[dict[str, Any]]:
 
 
 def _render_context(hits: list[dict[str, Any]]) -> str:
-    """Render retrieved chunks into the generation prompt's context block."""
+    """把检索到的文本块渲染成生成提示词的上下文块."""
     if not hits:
         return "(本次检索未返回任何知识库内容)"
 
@@ -399,7 +394,7 @@ def _render_context(hits: list[dict[str, Any]]) -> str:
 
 
 def _generate_system_prompt(context: str) -> str:
-    """System prompt for the generation step, with the context injected."""
+    """生成步骤的 system prompt,已注入上下文."""
     return SYSTEM_PROMPT + f"""
 
 ## 本次检索到的知识库内容
@@ -414,7 +409,7 @@ def _generate_system_prompt(context: str) -> str:
 
 
 async def _classify_intent(query: str) -> str:
-    """Thinking-disabled GLM call: knowledge vs direct (no retrieval)."""
+    """关闭 thinking 的 GLM 调用:knowledge 还是 direct(无检索)."""
     system = (
         "判断下面这句用户消息是否需要查询个人知识库。"
         "需要检索知识（关于用户个人记录、资料、笔记、文档、过往内容等）返回 knowledge；"
@@ -423,7 +418,7 @@ async def _classify_intent(query: str) -> str:
     )
     if DEPS.settings is None or not DEPS.settings.zhipu_api_key:
         raise RuntimeError("未配置 ZHIPU_API_KEY，无法进行分类路由。")
-    # Thinking disabled + tiny token budget keeps routing cheap and fast.
+    # 关闭 thinking + 极小的 token 预算,让路由又便宜又快.
     classifier = _make_classifier_llm(DEPS.settings)
     response = await classifier.ainvoke(
         [SystemMessage(content=system), HumanMessage(content=query)]
@@ -435,7 +430,7 @@ async def _classify_intent(query: str) -> str:
 
 
 def _make_classifier_llm(settings: Settings) -> Any:
-    """Build a ZhipuLLM tuned for cheap, thinking-disabled classification."""
+    """构建一个专为廉价,关闭 thinking 的分类调优的 ZhipuLLM."""
     from graph.llm import ZhipuLLM
 
     return ZhipuLLM(
@@ -449,7 +444,7 @@ def _make_classifier_llm(settings: Settings) -> Any:
 
 
 async def _rewrite(query: str, state: KnowledgeState) -> str:
-    """Ask GLM to rewrite a query that failed to retrieve useful content."""
+    """让 GLM 改写一个未能检索到有用内容的查询."""
     messages = _trim_history(state)
     prompt = (
         f"上一条查询未能从知识库中检索到有用信息。请将下面的查询改写得更具体、"

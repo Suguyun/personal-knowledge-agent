@@ -1,8 +1,8 @@
-"""Load knowledge base documents from disk into langchain Documents.
+"""从磁盘加载知识库文档到 langchain Documents.
 
-Supported extensions: `.md` and `.txt`. Every other file in the directory is
-skipped with a log message. Files are read as UTF-8 with a latin-1 fallback so
-a single mis-encoded file cannot abort the whole index build.
+支持的扩展名:`.md` 和 `.txt`.目录中其余文件会被跳过并记录一条日志.
+文件以 UTF-8 读取,失败时回退到 latin-1,因此单个编码错误的文件不会中断
+整个 index 的构建.
 """
 
 from __future__ import annotations
@@ -15,21 +15,21 @@ from langchain_core.documents import Document
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_EXTENSIONS = {".md", ".markdown", ".txt"}
-# Current-working-directory marker (macOS `._` files, Finder artifacts) —
-# never treated as knowledge content.
+# 当前目录标记(macOS 的 `._` 文件,Finder 产物)——
+# 永远不会被当作知识内容.
 _SKIP_PREFIXES = (".", "_")
 
 
 def load_documents(kb_dir: str | Path) -> list[Document]:
-    """Read every supported file under `kb_dir` (non-recursive) into Documents.
+    """将 `kb_dir` 下(非递归)所有受支持的文件读入 Documents.
 
     Args:
-        kb_dir: Directory containing the knowledge base markdown/text files.
+        kb_dir: 存放知识库 markdown/text 文件的目录.
 
     Returns:
-        A list of langchain `Document` objects. `metadata` carries:
-        `source_doc` (file name), `path` (absolute file path) and
-        `created_at` (RFC3339 UTC timestamp of the file's mtime).
+        langchain `Document` 对象的列表.`metadata` 包含:
+        `source_doc`(文件名),`path`(绝对文件路径)以及
+        `created_at`(文件 mtime 的 RFC3339 UTC 时间戳).
     """
     root = Path(kb_dir)
     if not root.is_dir():
@@ -70,7 +70,7 @@ def load_documents(kb_dir: str | Path) -> list[Document]:
 
 
 def _read_text(path: Path) -> str:
-    """Read UTF-8, falling back to latin-1 for legacy files."""
+    """以 UTF-8 读取,对旧文件回退到 latin-1."""
     try:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
@@ -79,7 +79,7 @@ def _read_text(path: Path) -> str:
 
 
 def _iso_utc(epoch: float) -> str:
-    """Format a unix timestamp as an RFC3339 UTC string."""
+    """把 unix 时间戳格式化为 RFC3339 UTC 字符串."""
     import datetime as _dt
 
     return _dt.datetime.fromtimestamp(epoch, tz=_dt.timezone.utc).isoformat()

@@ -1,13 +1,12 @@
-"""Interactive CLI for the personal knowledge agent.
+"""个人知识助手的交互式 CLI.
 
-Usage:
-    python main.py                 # interactive REPL (default)
-    python main.py --query "..."   # single-shot query
-    python main.py --rebuild       # wipe + rebuild the index before the session
+用法:
+    python main.py                 # 交互式 REPL(默认)
+    python main.py --query "..."   # 单次提问
+    python main.py --rebuild       # 会话开始前清空并重建索引
 
-On startup the CLI indexes every markdown/text file in `KB_DIR` (idempotent —
-files already indexed are skipped via the persistent collection count check),
-then drops into a REPL. `Ctrl+C` or `/exit` leaves the session.
+启动时 CLI 会索引 `KB_DIR` 下所有 markdown/text 文件(幂等 — 已索引的文件
+通过持久化的集合数量检查跳过),然后进入 REPL.`Ctrl+C` 或 `/exit` 退出会话.
 """
 
 from __future__ import annotations
@@ -36,15 +35,15 @@ def _setup_logging(debug: bool = False) -> None:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    # Keep the noisy HTTP/urllib loggers quiet by default.
+    # 默认压住吵闹的 HTTP/urllib logger.
     for noisy in ("httpx", "httpcore", "chromadb", "urllib3", "openai"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def index_knowledge_base(settings: Settings, store: VectorStore) -> int:
-    """Load KB files, split, and index any new chunks (idempotent).
+    """加载 KB 文件,切分并索引新增的 chunk(幂等).
 
-    Returns the number of chunks added during this run.
+    返回本次运行新增的 chunk 数量.
     """
     docs = load_documents(settings.kb_dir)
     if not docs:
@@ -57,9 +56,8 @@ def index_knowledge_base(settings: Settings, store: VectorStore) -> int:
         chunk_overlap=settings.chunk_overlap,
     )
     if store.count() > 0:
-        # Idempotency heuristic: we don't track per-file hashes; a full rebuild
-        # (--rebuild) is the explicit way to refresh. Skip re-adding when the
-        # collection is already populated so restarts are fast.
+        # 幂等启发式:我们不跟踪逐文件 hash;全量重建(--rebuild)才是显式的
+        # 刷新方式.集合已有数据时跳过重复添加,让重启更快.
         logger.info(
             "集合已有 %d 个片段，跳过增量索引（如需重建请加 --rebuild）。",
             store.count(),
@@ -72,7 +70,7 @@ def index_knowledge_base(settings: Settings, store: VectorStore) -> int:
 
 
 async def _run_session(settings: Settings, graph) -> None:
-    """Interactive REPL."""
+    """交互式 REPL."""
     print()
     print("=" * 60)
     print(" 个人知识助手已就绪 (GLM-5.2 + LangGraph + ChromaDB)")
@@ -112,9 +110,8 @@ async def _run_session(settings: Settings, graph) -> None:
 async def _run_query(settings: Settings, graph, query: str) -> None:
     from langchain_core.messages import HumanMessage
 
-    # A one-shot run must not inherit history from earlier runs: the
-    # checkpointer persists to SQLite, so a fixed thread_id would load the
-    # previous invocation's conversation and feed it back in as context.
+    # 单次运行不能继承此前运行的历史:checkpointer 持久化到 SQLite,固定
+    # thread_id 会加载上一次调用的对话,并把它作为上下文回灌.
     thread_id = f"one-shot-{uuid.uuid4().hex[:8]}"
 
     print("问题:", query)
@@ -127,8 +124,8 @@ async def _run_query(settings: Settings, graph, query: str) -> None:
         )
         print(result.get("final_answer") or "(无回答)")
     finally:
-        # The id is unique per invocation, so nothing would ever reuse or
-        # prune it — drop the thread rather than leaking it into the DB.
+        # 该 id 每次调用都唯一,不会被复用或清理 — 主动删掉这个 thread,
+        # 而不是把它泄漏进 DB.
         await clear_thread(graph, thread_id)
 
 
@@ -160,9 +157,8 @@ async def main() -> None:
         else:
             await _run_session(settings, graph)
     finally:
-        # Close the aiosqlite checkpoint connection before the event loop
-        # shuts down, otherwise its worker thread raises "Event loop is
-        # closed" on exit (see README: close_graph).
+        # 在事件循环关闭前关掉 aiosqlite checkpoint 连接,否则退出时它的
+        # worker thread 会抛 "Event loop is closed"(见 README:close_graph).
         await close_graph(graph)
 
 

@@ -1,9 +1,9 @@
-"""LangGraph orchestration for the knowledge agent.
+"""知识 agent 的 LangGraph 编排.
 
-Public surface:
-    - `KnowledgeState`: the typed graph state
-    - `build_graph`:    assemble + compile the StateGraph
-    - `run_agent`:      convenience async entry point (single query)
+对外接口:
+    - `KnowledgeState`:带类型的 graph state
+    - `build_graph`:组装并编译 StateGraph
+    - `run_agent`:便捷的 async 入口(单次查询)
 """
 
 from .builder import (

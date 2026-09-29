@@ -1,8 +1,8 @@
-"""`list_documents` tool — enumerate the knowledge base contents.
+"""`list_documents` tool —— 枚举知识库内容.
 
-Aggregates ChromaDB metadata into a per-document summary (name, tags/sections,
-last updated time, chunk count). Used by the model before deciding whether a
-query topic exists in the KB, and useful as a "what do I know" overview.
+把 ChromaDB metadata 聚合为按文档划分的摘要(文档名,tags/sections,最近更新
+时间,chunk 数量).模型在判断某个查询主题是否存在于知识库前会使用它,同时它
+也适合用来给出"我有哪些知识"的全貌.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _make_list_documents(store: Any | None):
-    """Closure builder so the tool is bound to its vector store at runtime."""
+    """闭包工厂,使 tool 在运行时绑定到它的 vector store."""
 
     @tool
     def list_documents() -> str:
@@ -45,7 +45,7 @@ def _make_list_documents(store: Any | None):
             logger.exception("list_documents failed")
             return f"查询失败: {exc}"
 
-        # Aggregate per source_doc.
+        # 按 source_doc 聚合.
         by_doc: dict[str, dict[str, Any]] = {}
         for item in items:
             meta = item.get("metadata") or {}
