@@ -150,11 +150,11 @@ generate_node ──质量不达标且 retry<1──→ rewrite_query_node → k
    按状态码增加专门重试逻辑。
 6. **`build_graph` 是 async 的**：`AsyncSqliteSaver` 必须在事件循环内构造。
    在 async 上下文用 `await build_graph(...)`；脚本场景用 `build_graph_sync()`。
-7. **工具调用循环尚未经真实 API 验证**：序列化（工具 schema、`tool_calls`
-   往返、畸形参数判定）与循环控制（单轮、未知工具、轮次上限、无工具降级）
-   均有桩件测试覆盖，但"模型真的会按要求发起工具调用"只能在真实调用中确认。
-   换厂商后尤其要跑一次实网验证 —— 带 `tools=` 的请求必须回传历史轮次的
-   `reasoning_content`，这条契约的往返链路没有桩件覆盖。
+7. **工具调用循环已经过真实 API 验证（2026-09-29，DeepSeek `deepseek-flash`）**：
+   实测确认模型会发起工具调用、参数通过 `args_schema` 校验、`create_note` 真的
+   落盘写入、带 `tools=` 的后续请求被接受（`reasoning_content` 回传契约成立），
+   全程零降级。但这是**一次性实测，不是回归测试** —— 仓库没有测试套件，换服务商
+   或改动这条链路后仍需用真实 API 重新验证一次。
 
 ## 下一步建议
 

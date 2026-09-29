@@ -83,7 +83,9 @@ generate_node ──质量不达标且 retry_count < max_retry──→ rewrite_
 
 ## 已知缺陷
 
-**工具调用循环没有经过真实 API 验证。** 序列化（`_tools_to_payload`、`_to_dict` 的 `tool_calls` 往返、畸形 `arguments` 判定）与循环控制（不请求工具时单次调用、未知工具、轮次上限、无 `tools=` 参数的 LLM 降级）都有桩件测试覆盖，但"模型会按要求发起工具调用、其参数能被 `args_schema` 接受"只能在真实调用中确认。改动这条链路后请用真实 API 至少验证一次 —— 换服务商时尤其要确认带 `tools=` 的请求能正确回传 `reasoning_content`，这条往返链路同样没有桩件覆盖。
+**工具调用循环已经过真实 API 验证（2026-09-29，DeepSeek `deepseek-flash`）。** 实测确认：模型会按要求发起工具调用（日志 `Tool iteration 1/3`）、参数能通过 `args_schema` 校验、`create_note` 真的落盘写入了文件、带 `tools=` 的后续请求被 API 接受（即 `reasoning_content` 回传契约成立）、全程无 `retrying without tools` 降级。序列化（`_tools_to_payload`、`_to_dict` 的 `tool_calls` 往返、畸形 `arguments` 判定）与循环控制（不请求工具时单次调用、未知工具、轮次上限、无 `tools=` 参数的 LLM 降级）另有桩件覆盖。
+
+但这是**一次性的实测观察，不是回归测试** —— 仓库里没有测试套件，改动这条链路（尤其是换服务商）后仍需用真实 API 重新验证一次，重点是带 `tools=` 的请求能否正确回传 `reasoning_content`。
 
 **检索仍是"全量重建"。** 启动时仅在集合为空时建索引，`data/kb/` 中被修改或删除的文件不会被刷新；`--rebuild` 是唯一刷新手段，而它会连笔记一起清空。`VectorStore.reindex_path()` 已能按 `path` 安全替换单个文件的片段，但目前只有 `create_note` 用它。
 
