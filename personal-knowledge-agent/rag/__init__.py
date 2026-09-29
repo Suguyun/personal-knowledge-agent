@@ -1,15 +1,15 @@
-"""RAG pipeline: load → split → embed → index → retrieve → rerank.
+"""RAG 流水线:load → split → embed → index → retrieve → rerank.
 
-Public surface exposed to the rest of the package:
+对包内其余部分公开的接口:
 
-    - `load_documents`:  read .md/.txt files from a directory
-    - `split_documents`: markdown-header-aware chunking with fallback
-    - `Embedder`:        batching wrapper around the `embedding-3` API
-    - `VectorStore`:     persistent ChromaDB store with metadata
-    - `Retriever`:       top-k similarity search with relevance scores
-    - `Reranker`:        optional cross-encoder rerank (graceful fallback)
+    - `load_documents`:  从目录读取 .md/.txt 文件
+    - `split_documents`: 感知 markdown 标题的 chunk 切分,带兜底策略
+    - `Embedder`:        对 `embedding-3` API 的批处理封装
+    - `VectorStore`:     持久化的 ChromaDB store,含 metadata
+    - `Retriever`:       带 relevance score 的 top-k 相似度检索
+    - `Reranker`:        可选的 cross-encoder rerank(可优雅降级)
 
-Everything is importable from `rag` directly, e.g. `from rag import Retriever`.
+所有内容都可直接从 `rag` 导入,例如 `from rag import Retriever`.
 """
 
 from .embedder import Embedder

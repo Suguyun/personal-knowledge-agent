@@ -1,15 +1,14 @@
-"""End-to-end test for the personal knowledge agent.
+"""个人知识助手的端到端测试.
 
-Usage:
-    python test_agent.py               # full run: seed KB + index + 3 queries
-    python test_agent.py --offline     # build the pipeline, skip live LLM calls
-    python test_agent.py --query "..." # run a single extra query
+用法:
+    python test_agent.py               # 完整运行:写入样例 KB + 建索引 + 3 条查询
+    python test_agent.py --offline     # 只构建流水线,跳过真实 LLM 调用
+    python test_agent.py --query "..." # 额外执行一条查询
 
-The test seeds `data/kb/` with two sample markdown documents (skipped if they
-already exist so your real notes are never touched), indexes the KB, then runs
-three fixed queries and prints each answer.
+测试会向 `data/kb/` 写入两篇样例 markdown 文档(若已存在则跳过,绝不触碰你的
+真实笔记),建立 KB 索引,然后跑三条固定查询并打印每个回答.
 
-Requires ZHIPU_API_KEY unless `--offline` is given.
+除非给出 `--offline`,否则需要 ZHIPU_API_KEY.
 """
 
 from __future__ import annotations
@@ -64,7 +63,7 @@ Continue 是开源插件，可自由更换底层模型。
 
 
 def seed_kb(settings: Settings) -> None:
-    """Write the two sample documents into data/kb/ (no-op if present)."""
+    """把两篇样例文档写入 data/kb/(已存在则不做任何事)."""
     settings.kb_dir.mkdir(parents=True, exist_ok=True)
     for name, content in _SAMPLE_DOCS.items():
         path = settings.kb_dir / name
@@ -76,11 +75,10 @@ def seed_kb(settings: Settings) -> None:
 
 
 class _DummyEmbedder:
-    """Deterministic 8-dim vectors so the pipeline runs fully offline.
+    """确定性的 8 维向量,让流水线可以完全离线运行.
 
-    Used only by `--offline`, where no API key is required and no network
-    calls happen. Vectors are content-derived so retrieval ordering is
-    deterministic and reproducible.
+    仅由 `--offline` 使用,此时不需要 API key,也不会发生任何网络调用.向量由
+    内容派生,因此检索顺序是确定且可复现的.
     """
 
     def __init__(self) -> None:
@@ -89,7 +87,7 @@ class _DummyEmbedder:
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         out = []
         for text in texts:
-            # Sum of codepoints as a simple hashed feature vector.
+            # 用 codepoint 之和作为简单的哈希特征向量.
             vec = [0.0] * self.dim
             for i, ch in enumerate(text):
                 vec[i % self.dim] += ord(ch)
@@ -99,14 +97,12 @@ class _DummyEmbedder:
 
 
 def _offline_settings(settings: Settings) -> tuple[Settings, Path]:
-    """Settings pointing at throwaway storage, plus the temp root to delete.
+    """指向一次性存储的 settings,以及需要删除的临时根目录.
 
-    The offline run indexes deterministic 8-dim dummy vectors. Writing those
-    into the real collection would leave it unusable: the next real run sees a
-    non-empty collection, skips indexing, and then fails every query on a
-    dimension mismatch (512-dim local embedding vs 8-dim stored vectors) until
-    someone runs `--rebuild`. The checkpoint DB is redirected for the same
-    reason — the offline path has no business touching the production one
+    离线运行会索引确定性的 8 维 dummy 向量.把它们写进真实集合会让集合不可用:
+    下一次真实运行看到集合非空,跳过建索引,随后每条查询都会因维度不匹配而失败
+    (512 维本地 embedding 对 8 维已存向量),直到有人跑 `--rebuild`.
+    checkpoint DB 出于同样的原因被重定向 — 离线路径不该碰生产库
     (`data/checkpoints.sqlite`).
     """
     tmp_root = Path(tempfile.mkdtemp(prefix="pka-offline-"))
@@ -121,12 +117,11 @@ def _offline_settings(settings: Settings) -> tuple[Settings, Path]:
 
 
 async def _build_and_close(settings: Settings) -> None:
-    """Build the pipeline and tear it down cleanly (offline smoke test).
+    """构建流水线并干净地拆除(离线冒烟测试).
 
-    Uses `await build_graph(...)` + `close_graph` rather than
-    `build_graph_sync`, because the latter wraps `asyncio.run`, which closes
-    the event loop while the aiosqlite worker thread is still live — the very
-    teardown the sync helper documents as unsafe.
+    使用 `await build_graph(...)` + `close_graph` 而不是 `build_graph_sync`,
+    因为后者包装了 `asyncio.run`,会在 aiosqlite worker thread 仍存活时关闭
+    事件循环 — 这正是 sync helper 文档中标注为不安全的拆除方式.
     """
     from graph.builder import close_graph
 
@@ -151,9 +146,9 @@ def _index(settings: Settings, offline: bool = False) -> int:
 async def _run(settings: Settings, queries: list[str]) -> None:
     from graph.builder import close_graph
 
-    # Fresh thread per run so the three queries share context with each other
-    # but never with a previous `test_agent.py` run (the checkpointer is
-    # persistent, so a fixed thread_id would replay old answers).
+    # 每次运行用全新的 thread,让三条查询彼此共享上下文,但绝不与之前的
+    # `test_agent.py` 运行共享(checkpointer 是持久化的,固定 thread_id
+    # 会重放旧回答).
     thread_id = f"test-{uuid.uuid4().hex[:8]}"
 
     graph = await build_graph(settings=settings)
@@ -170,7 +165,7 @@ async def _run(settings: Settings, queries: list[str]) -> None:
             answer = result.get("final_answer") or "(无回答)"
             print(f"回答:\n{answer}")
     finally:
-        # Don't leave this run's unique thread behind in the checkpoint DB.
+        # 不要把本次运行独有的 thread 留在 checkpoint DB 中.
         await clear_thread(graph, thread_id)
         await close_graph(graph)
 
@@ -192,8 +187,8 @@ def main() -> None:
             _index(offline_settings, offline=True)
             asyncio.run(_build_and_close(offline_settings))
         finally:
-            # The smoke test is meant to be run repeatedly; without this every
-            # run would leave a pka-offline-* directory behind.
+            # 冒烟测试会被反复运行;没有这一步,每次运行都会留下一个
+            # pka-offline-* 目录.
             shutil.rmtree(tmp_root, ignore_errors=True)
         print("\n[offline] 流水线构建成功（未调用任何 API/LLM）。")
         return

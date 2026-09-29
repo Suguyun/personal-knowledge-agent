@@ -1,27 +1,25 @@
-"""Lightweight LLM adapter wrapping the official `zai-sdk` (ZhipuAiClient).
+"""轻量 LLM 适配器,包装官方 `zai-sdk`(ZhipuAiClient).
 
-The graph nodes call `llm.ainvoke(messages, tools=None)` where `messages` is a
-list of langchain message objects (HumanMessage / SystemMessage / AIMessage /
-ToolMessage). This adapter converts those to the `zai` SDK's plain-dict format
-and returns a thin result object exposing `.content` and `.tool_calls`, so the
-rest of the graph (`_as_text` in nodes.py) works unchanged.
+graph node 通过 `llm.ainvoke(messages, tools=None)` 调用,其中 `messages` 是
+langchain 消息对象列表(HumanMessage / SystemMessage / AIMessage /
+ToolMessage).本适配器把它们转成 `zai` SDK 的普通 dict 格式,并返回一个暴露
+`.content` 与 `.tool_calls` 的轻量结果对象,因此 graph 其余部分(nodes.py 中
+的 `_as_text`)无需改动即可工作.
 
-Why not `ChatOpenAI` / `langchain_openai`?
+为什么不用 `ChatOpenAI` / `langchain_openai`?
 
-    GLM-5.2 runs its internal thinking by default. With thinking enabled,
-    the API returns the reasoning trace in `reasoning_content` and the final
-    answer in `content`. If `max_tokens` is too small the thinking trace
-    consumes the whole budget and `content` comes back empty — exactly the
-    empty-answer bug we saw. The official SDK gives us first-class `thinking`
-    control plus a sane token budget, so answers are always generated.
+    GLM-5.2 默认会跑内部思考.开启 thinking 后,API 把推理轨迹放在
+    `reasoning_content`,最终回答放在 `content`.如果 `max_tokens` 太小,
+    思考轨迹会吃掉全部额度,`content` 返回空 —— 正是我们见过的空回答
+    bug.官方 SDK 提供了第一等的 `thinking` 控制以及合理的 token 预算,
+    因此回答总能生成出来.
 
-Native function calling
+原生 Function Calling
 
-    `tools` accepts langchain `BaseTool` objects (see `tools/`); they are
-    serialised to the OpenAI function-calling payload here. The adapter only
-    *carries* tool calls — deciding to run them and feeding the results back is
-    the caller's job (`nodes._tool_enabled_completion`). Passing no tools
-    leaves every call byte-identical to the tool-less implementation.
+    `tools` 接受 langchain `BaseTool` 对象(见 `tools/`);它们在这里被序列
+    化成 OpenAI function-calling 载荷.适配器只 *携带* tool calls —— 决定
+    是否执行并把结果回灌是调用方的职责(`nodes._tool_enabled_completion`).
+    不传 tools 时,每次调用与无工具实现逐字节一致.
 """
 
 from __future__ import annotations
@@ -35,13 +33,13 @@ from zai import ZhipuAiClient
 
 logger = logging.getLogger(__name__)
 
-# GLM-5.2 thinking traces can be long; budget plenty of room so the final
-# answer is always generated after the reasoning pass.
+# GLM-5.2 的 thinking 轨迹可能很长;留足空间,确保推理阶段之后总能
+# 生成最终回答.
 DEFAULT_MAX_TOKENS = 8192
 
 
 class ZhipuLLM:
-    """Adapter exposing `ainvoke(messages, tools?) -> .content / .tool_calls`."""
+    """暴露 `ainvoke(messages, tools?) -> .content / .tool_calls` 的适配器."""
 
     def __init__(
         self,
@@ -53,22 +51,21 @@ class ZhipuLLM:
         thinking: dict[str, Any] | None = None,
         stream_tokens: Any | None = None,
     ) -> None:
-        """Create a ZhipuLLM client.
+        """创建一个 ZhipuLLM client.
 
         Args:
-            api_key: Zhipu API key.
-            model: GLM model id (default glm-5.2).
-            base_url: Optional custom base URL (defaults to SDK's own).
-            temperature: Sampling temperature.
-            max_tokens: Max output tokens (default 8192, enough for the
-                        thinking trace + final answer).
-            thinking: e.g. {"type": "disabled"} to turn off thinking for
-                      cheap classification calls; None keeps the model default.
-            stream_tokens: Optional callback invoked with each streamed token
-                           chunk (used by the interactive CLI). When provided,
-                           calls stream instead of one-shot create. Streaming
-                           is skipped for tool-enabled calls (deltas carry no
-                           tool calls).
+            api_key: 智谱 API key.
+            model: GLM 模型 id(默认 glm-5.2).
+            base_url: 可选的自定义 base URL(默认为 SDK 自带的).
+            temperature: 采样温度.
+            max_tokens: 最大输出 token 数(默认 8192,足够装下 thinking
+                        轨迹 + 最终回答).
+            thinking: 例如 {"type": "disabled"} 可为廉价的分类调用关闭
+                      thinking;None 则保持模型默认.
+            stream_tokens: 可选回调,每收到一个流式 token 块即调用
+                           (供交互式 CLI 使用).提供时改用流式而非
+                           一次性 create.工具启用的调用会跳过流式
+                           (delta 不携带 tool calls).
         """
         self.model = model
         self.temperature = temperature
@@ -77,28 +74,27 @@ class ZhipuLLM:
         self.stream_tokens = stream_tokens
         self._client = ZhipuAiClient(api_key=api_key, base_url=base_url)
 
-    # -- public API ----------------------------------------------------------
+    # -- 公开 API ------------------------------------------------------------
     async def ainvoke(self, messages: Iterable[Any], tools: Any = None) -> Any:
-        """Async-call the model with langchain messages; returns a result object.
+        """用 langchain 消息 async 调用模型;返回结果对象.
 
-        Runs the synchronous SDK call in a thread so async graph nodes don't
-        block the event loop.
+        在线程中执行同步 SDK 调用,避免 async graph node 阻塞事件循环.
 
         Args:
-            messages: langchain message objects.
-            tools: Optional list of langchain `BaseTool` to expose to the model.
+            messages: langchain 消息对象.
+            tools: 可选,暴露给模型的 langchain `BaseTool` 列表.
         """
         payload = [self._to_dict(m) for m in messages]
         tool_payload = _tools_to_payload(tools)
         return await asyncio.to_thread(self._invoke, payload, tool_payload)
 
     def invoke(self, messages: Iterable[Any], tools: Any = None) -> Any:
-        """Synchronous variant of `ainvoke`."""
+        """`ainvoke` 的同步版本."""
         return self._invoke(
             [self._to_dict(m) for m in messages], _tools_to_payload(tools)
         )
 
-    # -- internals ------------------------------------------------------------
+    # -- 内部实现 -------------------------------------------------------------
     def _invoke(self, messages: list[dict[str, Any]],
                 tools: list[dict[str, Any]] | None = None) -> "_ZhipuResult":
         kwargs: dict[str, Any] = dict(
@@ -113,8 +109,8 @@ class ZhipuLLM:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
-        # Streaming only accumulates text deltas, so a tool-enabled call must
-        # take the one-shot path or the tool calls would be lost.
+        # 流式只累积文本 delta,因此启用了工具的调用必须走一次性
+        # 路径,否则 tool calls 会丢失.
         if self.stream_tokens is not None and not tools:
             content = self._invoke_stream(kwargs)
             return _ZhipuResult(content)
@@ -124,7 +120,7 @@ class ZhipuLLM:
         return _ZhipuResult(msg.content or "", _normalize_tool_calls(msg))
 
     def _invoke_stream(self, kwargs: dict[str, Any]) -> str:
-        """Stream the response, forwarding tokens to `self.stream_tokens`."""
+        """流式获取响应,并把 token 转发给 `self.stream_tokens`."""
         chunks: list[str] = []
         stream = self._client.chat.completions.create(**kwargs, stream=True)
         for chunk in stream:
@@ -142,7 +138,7 @@ class ZhipuLLM:
 
     @staticmethod
     def _to_dict(message: Any) -> dict[str, Any]:
-        """Convert a langchain message to the zai SDK plain-dict format."""
+        """把 langchain 消息转成 zai SDK 的普通 dict 格式."""
         role_map = {
             "HumanMessage": "user",
             "SystemMessage": "system",
@@ -157,8 +153,8 @@ class ZhipuLLM:
         if role == "tool":
             d["tool_call_id"] = getattr(message, "tool_call_id", None)
         elif role == "assistant":
-            # An assistant turn that requested tools must be sent back verbatim,
-            # otherwise the tool results that follow have nothing to attach to.
+            # 请求过工具的 assistant 轮次必须原样回传,
+            # 否则紧随其后的工具结果将无处挂载.
             calls = getattr(message, "tool_calls", None)
             if calls:
                 d["tool_calls"] = [_to_api_tool_call(c) for c in calls]
@@ -166,7 +162,7 @@ class ZhipuLLM:
 
 
 def _tools_to_payload(tools: Any) -> list[dict[str, Any]] | None:
-    """Serialise langchain tools into the OpenAI function-calling payload."""
+    """把 langchain tools 序列化成 OpenAI function-calling 载荷."""
     if not tools:
         return None
 
@@ -194,7 +190,7 @@ def _tools_to_payload(tools: Any) -> list[dict[str, Any]] | None:
 
 
 def _to_api_tool_call(call: Any) -> dict[str, Any]:
-    """Convert a langchain tool-call dict/object into the API's shape."""
+    """把 langchain 的 tool-call dict/对象转成 API 的形状."""
     if isinstance(call, dict):
         name, args, call_id = call.get("name"), call.get("args"), call.get("id")
     else:
@@ -212,12 +208,11 @@ def _to_api_tool_call(call: Any) -> dict[str, Any]:
 
 
 def _normalize_tool_calls(message: Any) -> list[dict[str, Any]]:
-    """Normalize SDK tool calls into `{"id", "name", "args", "parse_error"}`.
+    """把 SDK tool calls 归一化成 `{"id", "name", "args", "parse_error"}`.
 
-    Unparseable `arguments` become `args=None` plus a `parse_error` message
-    rather than an empty dict: the caller must tell the model its call was
-    malformed instead of silently invoking the tool with no arguments (which
-    for `create_note` would mean "saving" an empty note).
+    无法解析的 `arguments` 会变成 `args=None` 外加一条 `parse_error` 信息,
+    而不是空 dict:调用方必须告诉模型它的调用格式不对,而不是静默地以无参数
+    方式执行工具(对 `create_note` 而言,那等于"保存"一条空笔记).
     """
     calls: list[dict[str, Any]] = []
     for raw in (getattr(message, "tool_calls", None) or []):
@@ -242,7 +237,7 @@ def _normalize_tool_calls(message: Any) -> list[dict[str, Any]]:
 
 
 class _ZhipuResult:
-    """Minimal result object exposing `.content`, `.text` and `.tool_calls`."""
+    """最小结果对象,暴露 `.content`,`.text` 与 `.tool_calls`."""
 
     def __init__(self, content: str, tool_calls: list[dict[str, Any]] | None = None) -> None:
         self.content = content

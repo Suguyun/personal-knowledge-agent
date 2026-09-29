@@ -1,9 +1,8 @@
-"""`knowledge_search` tool — the primary knowledge base access point.
+"""`knowledge_search` tool —— 知识库的主要访问入口.
 
-The docstring is the tool schema the model sees. Because GLM-5.2 relies
-heavily on docstrings for tool understanding, the description is written in
-Chinese (matching the system prompt) with the parameters spelled out
-explicitly. The implementation delegates to the injected `Retriever`.
+它的 docstring 就是模型看到的 tool schema.由于 GLM-5.2 高度依赖 docstring 来
+理解 tool,这里用中文撰写描述(与 system prompt 一致),并显式列出各参数.
+实现委托给注入的 `Retriever`.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _make_knowledge_search(retriever: Any | None):
-    """Closure builder so the tool is bound to its retriever at runtime."""
+    """闭包工厂,使 tool 在运行时绑定到它的 retriever."""
 
     @tool
     def knowledge_search(query: str, filters: Optional[dict[str, Any]] = None) -> str:
@@ -46,7 +45,7 @@ def _make_knowledge_search(retriever: Any | None):
             raise ValueError("knowledge_search 未绑定 retriever，无法执行检索。")
         try:
             hits = retriever.search(query=query, filters=filters or None)
-        except Exception as exc:  # structured error → LLM decides next step
+        except Exception as exc:  # 结构化错误 → 交由 LLM 决定下一步
             logger.exception("knowledge_search failed")
             return f"检索失败: {exc}"
         return _format_hits(hits)
@@ -55,7 +54,7 @@ def _make_knowledge_search(retriever: Any | None):
 
 
 def _format_hits(hits: list[dict[str, Any]]) -> str:
-    """Serialize retrieval results as a compact JSON string."""
+    """把检索结果序列化为紧凑的 JSON 字符串."""
     import json
 
     payload = []

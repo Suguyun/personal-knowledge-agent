@@ -1,11 +1,11 @@
-"""Edge / routing logic for the graph.
+"""Graph 的 edge / 路由逻辑.
 
-Three routing decisions live here:
+这里有三个路由决策:
 
-1. `route_intent`        — which branch the intent_router picked
-2. `route_after_generate`— whether to accept the answer or retry with a
-                           rewritten query (quality check + retry budget)
-3. `route_after_rewrite` — after rewriting, whether to re-run retrieval
+1. `route_intent`        — intent_router 选了哪条分支
+2. `route_after_generate`— 是接受回答,还是用改写后的查询 retry
+                           (质量检查 + retry 预算)
+3. `route_after_rewrite` — 改写之后,是否重新执行检索
 """
 
 from __future__ import annotations
@@ -15,36 +15,35 @@ from langchain_core.messages import AIMessage
 from config import Settings, get_settings
 from graph.state import KnowledgeState
 
-# Literal branch names, shared with builder.py.
+# 字面量分支名,与 builder.py 共享.
 BRANCH_KNOWLEDGE = "knowledge"
 BRANCH_DIRECT = "direct"
 
-# `intent_router` parks its decision on `current_query` as
-# f"{INTENT_PREFIX}<branch>". The prefix is defined here and used by both the
-# writer (graph/nodes.py) and the readers (this module), so the marker format
-# is genuinely declared in one place — changing it cannot desynchronise them.
+# `intent_router` 把它的决策暂存在 `current_query` 上,形式为
+# f"{INTENT_PREFIX}<branch>".前缀在这里定义,写入方(graph/nodes.py)
+# 与读取方(本模块)都用它,因此标记格式确实只在一处声明 ——
+# 改动它不会让两边失配.
 INTENT_PREFIX = "INTENT:"
 
-# The exact marker values `intent_router` can write. Matching these full
-# strings (instead of testing for the prefix) keeps a rewritten query that
-# happens to start with the prefix from being mistaken for a marker.
+# `intent_router` 可能写入的确切标记值.匹配这些完整字符串
+# (而不是测试前缀)可以避免一个恰好以该前缀开头的改写查询
+# 被误判成标记.
 INTENT_MARKERS = frozenset(
     f"{INTENT_PREFIX}{branch}" for branch in (BRANCH_KNOWLEDGE, BRANCH_DIRECT)
 )
 
 
 def route_intent(state: KnowledgeState) -> str:
-    """Decide which branch the user query takes.
+    """决定用户查询走哪条分支.
 
-    The intent_router node stores its decision on `current_query` in the form
-    `INTENT:<knowledge|direct>`; this function strips the prefix and maps it
-    onto the graph branch names. Any unknown value defaults to the knowledge
-    branch (retrieval is the safe default).
+    intent_router node 把它的决策以 `INTENT:<knowledge|direct>` 的形式存到
+    `current_query` 上;本函数剥掉前缀并将其映射到 graph 的分支名.任何未知
+    值都默认走 knowledge 分支(检索是安全的默认选项).
     """
     marker = state.get("current_query", "")
     if marker.startswith(INTENT_PREFIX):
-        # Slice by prefix length rather than splitting on ":": the separator is
-        # whatever INTENT_PREFIX ends with, not a hardcoded colon.
+        # 按前缀长度切片,而不是用 ":" 分割:分隔符是 INTENT_PREFIX
+        # 结尾的那个字符,而非硬编码的冒号.
         intent = marker[len(INTENT_PREFIX):].strip().lower()
         if intent == BRANCH_DIRECT:
             return BRANCH_DIRECT
@@ -52,16 +51,16 @@ def route_intent(state: KnowledgeState) -> str:
 
 
 def route_after_generate(state: KnowledgeState, settings: Settings | None = None) -> str:
-    """Quality gate: accept the answer, or rewrite the query and retry once.
+    """质量门禁:接受回答,或者改写查询并 retry 一次.
 
-    Conditions that trigger a retry:
-        - retrieval returned nothing for this turn, OR
-        - the model produced an explicit "not found" answer
+    触发 retry 的条件:
+        - 本轮检索没有返回任何内容,或者
+        - 模型给出了明确的 "not found" 回答
 
-    Only retried when `retry_count < settings.max_retry` (default 1).
+    仅当 `retry_count < settings.max_retry`(默认 1)时才 retry.
 
     Returns:
-        "rewrite" to loop back through retrieval, else "end".
+        "rewrite" 表示回到检索再走一遍,否则 "end".
     """
     settings = settings or get_settings()
 
@@ -79,11 +78,10 @@ def route_after_generate(state: KnowledgeState, settings: Settings | None = None
 
 
 def route_after_rewrite(state: KnowledgeState) -> str:
-    """After rewriting the query, always re-enter retrieval.
+    """改写查询后,总是重新进入检索.
 
-    Kept as a named function so the graph wiring stays declarative and the
-    retry budget bookkeeping (incremented inside rewrite_query_node) is easy
-    to inspect.
+    保留为具名函数,是为了让 graph 的接线保持声明式,并让 retry 预算的记账
+    (在 rewrite_query_node 内自增)便于检查.
     """
     return "knowledge_search"
 

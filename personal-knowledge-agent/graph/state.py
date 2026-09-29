@@ -1,12 +1,12 @@
-"""Graph state definition.
+"""Graph state 定义.
 
-The spec mandates these exact fields:
+规格要求必须是这些确切字段:
 
-    messages        — conversation history; appended via add_messages reducer
-    retrieved_docs  — chunks fetched by the search tool for the current turn
-    current_query   — the (possibly rewritten) query driving this turn
-    retry_count     — how many rewrite-retries have been consumed
-    final_answer    — the answer produced by generate_node (or None)
+    messages        — 对话历史;通过 add_messages reducer 追加
+    retrieved_docs  — 本轮由检索工具取回的文本块
+    current_query   — 驱动本轮的(可能被改写过的)查询
+    retry_count     — 已消耗的 rewrite 重试次数
+    final_answer    — generate_node 产出的回答(或 None)
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from langgraph.graph.message import add_messages
 
 
 class KnowledgeState(TypedDict, total=False):
-    """State shared across all graph nodes."""
+    """所有 graph node 共享的 state."""
 
     messages: Annotated[list[AnyMessage], add_messages]
     retrieved_docs: list[dict[str, Any]]
